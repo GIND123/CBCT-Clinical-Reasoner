@@ -41,6 +41,21 @@ SEQUENTIAL_MID = "#86b6ef"
 DPI = 150
 
 
+def _pyplot():
+    """Import pyplot with a headless backend.
+
+    Modal containers and CI have no display; matplotlib usually picks Agg on its
+    own, but selecting it explicitly avoids a backend error surfacing at the very
+    end of a long GPU run.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg", force=False)
+    import matplotlib.pyplot as plt
+
+    return plt
+
+
 def _style() -> dict[str, Any]:
     return {
         "figure.facecolor": SURFACE,
@@ -87,9 +102,7 @@ def _save(fig, directory: Path, name: str) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / name
     fig.savefig(path)
-    import matplotlib.pyplot as plt
-
-    plt.close(fig)
+    _pyplot().close(fig)
     return path
 
 
@@ -109,7 +122,7 @@ def _bar(ax, labels: Sequence[str], values: Sequence[float], *, color: str = SER
 
 def plot_dataset(entries: Sequence[Any], directory: Path) -> list[Path]:
     """Case counts, report multiplicity, and the length distributions we must match."""
-    import matplotlib.pyplot as plt
+    plt = _pyplot()
 
     from cbct_reasoner.metrics.official import tokenize
     from cbct_reasoner.text import split_phrases
@@ -161,7 +174,7 @@ def plot_dataset(entries: Sequence[Any], directory: Path) -> list[Path]:
 
 def plot_prototypes(bank: Any, labels: np.ndarray, directory: Path) -> list[Path]:
     """Prevalence spread and section composition of the learned label space."""
-    import matplotlib.pyplot as plt
+    plt = _pyplot()
 
     with plt.rc_context(_style()):
         fig, axes = plt.subplots(1, 3, figsize=(13, 4.4))
@@ -204,7 +217,7 @@ def plot_training(
     history: Sequence[dict[str, Any]], prior_map: float | None, directory: Path
 ) -> list[Path]:
     """Per-fold learning curves. Flat lines at the prior mean the encoder is not learning."""
-    import matplotlib.pyplot as plt
+    plt = _pyplot()
 
     if not history:
         return []
@@ -263,7 +276,7 @@ def plot_calibration(
     calibration: dict[str, Any], thresholds: np.ndarray, bank: Any, directory: Path
 ) -> list[Path]:
     """Ascent trace and the threshold structure calibration is supposed to discover."""
-    import matplotlib.pyplot as plt
+    plt = _pyplot()
 
     with plt.rc_context(_style()):
         fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
@@ -338,7 +351,7 @@ def plot_evaluation(
     directory: Path,
 ) -> list[Path]:
     """Per-case score distributions, per-centre breakdown, and length agreement."""
-    import matplotlib.pyplot as plt
+    plt = _pyplot()
 
     from cbct_reasoner.metrics.official import meteor_score, tokenize
     from cbct_reasoner.metrics.radfact import LexicalRadFact
@@ -421,7 +434,7 @@ def plot_evaluation(
 
 def plot_ablation(rows: Sequence[tuple[str, dict[str, float]]], directory: Path) -> list[Path]:
     """Compare decoder variants on the components that make up the ranking score."""
-    import matplotlib.pyplot as plt
+    plt = _pyplot()
 
     if not rows:
         return []

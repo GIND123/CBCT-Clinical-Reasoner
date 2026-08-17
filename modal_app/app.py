@@ -175,6 +175,56 @@ def splits(config_name: str | None = None, strategy: str = "stratified") -> dict
     return summary
 
 
+@app.function(image=image, volumes=VOLUMES, timeout=1800, cpu=4.0)
+def verify_cache(config_name: str | None = None) -> dict:
+    """Check the uploaded cache before spending GPU time on it.
+
+    A partially-overwritten volume produces a batch of mixed shapes that only
+    fails minutes into training, inside the collate function. Verifying here is
+    seconds of CPU against tens of minutes of wasted GPU.
+    """
+    import collections
+
+    import numpy as np
+
+    from cbct_reasoner.data.corpus import load_corpus
+    from cbct_reasoner.data.preprocess import is_cached
+
+    paths, config = _context(config_name)
+    entries = load_corpus(paths.corpus)
+    shapes: collections.Counter = collections.Counter()
+    stale: list[str] = []
+    missing: list[str] = []
+
+    for entry in entries:
+        array_path = paths.cache / f"{entry.case_id}.npy"
+        if not array_path.is_file():
+            missing.append(entry.case_id)
+            continue
+        shapes[np.load(array_path, mmap_mode="r").shape] += 1
+        if not is_cached(paths.cache, entry.case_id, config.preprocess):
+            stale.append(entry.case_id)
+
+    payload = {
+        "stage": "verify_cache",
+        "cases": len(entries),
+        "shapes": {str(k): v for k, v in shapes.items()},
+        "missing": missing[:20],
+        "num_missing": len(missing),
+        "stale": stale[:20],
+        "num_stale": len(stale),
+        "expected_shape": list(config.preprocess.shape_zyx),
+        "ok": len(shapes) == 1
+        and not missing
+        and not stale
+        and next(iter(shapes), None) == tuple(config.preprocess.shape_zyx),
+    }
+    print(payload, flush=True)
+    if not payload["ok"]:
+        raise RuntimeError(f"Cache verification failed: {payload}")
+    return payload
+
+
 @app.function(image=image, volumes=VOLUMES, gpu=GPU_TYPE, timeout=TRAIN_TIMEOUT, memory=32768)
 def train_fold(fold_index: int, config_name: str | None = None) -> dict:
     """Train one fold. Called through ``.map`` so folds run concurrently."""
@@ -372,6 +422,9 @@ def main(
     if stage in {"inspect"}:
         show("inspect", inspect.remote())
         return
+    if stage == "verify-cache":
+        show("verify_cache", verify_cache.remote(config_name))
+        return
     if stage == "download-bundle":
         target = Path(output or "submission/model.tar.gz")
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -396,6 +449,7 @@ def main(
     if stage in {"all", "splits"}:
         show("splits", splits.remote(config_name, strategy))
     if stage in {"all", "train"} and not prior_only:
+        show("verify_cache", verify_cache.remote(config_name))
         plan = results.get("splits") or splits.remote(config_name, strategy)
         indices = selected or list(range(len(plan["folds"])))  # type: ignore[index]
         show("train", list(train_fold.map(indices, kwargs={"config_name": config_name})))

@@ -13,14 +13,32 @@ run one command.
 
 ## Status
 
+Run against the real release (`toothfairy4_v03`, **622 cases / 1000 English
+reports**).
+
 | | |
 |---|---|
-| Pipeline | End-to-end, verified on synthetic data (`pytest -m slow`) |
+| Pipeline | End-to-end on the real release; also rehearsable on synthetic data (`pytest -m slow`) |
 | Grader parity | BLEU-4 matches NLTK to machine precision; METEOR matches the evaluator's `meteor_lite_score` exactly |
-| Training | Local CPU/GPU, or parallel folds on Modal |
-| Artifacts | Pushed to Hugging Face, private by default |
-| Submission | Container builds against the organizer's base image and interface |
-| Waiting on | The dataset — drop it in [`data/raw/`](data/raw/) |
+| Label space | 989 clinician statements, **89%** of reference phrases reachable |
+| Training | 5 folds in parallel on Modal (A10G), or locally |
+| Artifacts | Private Hugging Face repo — bundle, checkpoints, figures, metrics |
+| Submission | Algorithm image builds from the organizer's base image and passes a no-network container test |
+
+Measured reference points, out-of-fold:
+
+| | final | BLEU-4 | METEOR |
+|---|---:|---:|---:|
+| Oracle (perfect encoder on this label space) | 0.6008 | 0.3410 | 0.4726 |
+| Calibrated prior (no imaging at all) | 0.3202 | 0.1225 | 0.2568 |
+| Public leaderboard #1 at time of writing | — | 0.1317 | 0.3191 |
+
+The middle row is the one worth internalising: an image-free corpus prior lands
+in the same range as the visible leaderboard, so the public board is not yet
+separating methods on imaging ability. `cbct-reasoner ablation` therefore scores
+the prior on identical machinery — if the encoder cannot beat it out-of-fold, the
+prior-only bundle is the honest submission. See
+[docs/strategy.md](docs/strategy.md).
 
 ## Quick start
 

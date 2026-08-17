@@ -232,6 +232,12 @@ CONCEPTS: tuple[Concept, ...] = (
         # fillings two sentences later.
         r"\b(?:absence|absent|missing)\s+(?:\w+\s+){0,3}?(?:from|in)\s+the\s+arch",
         r"\bedentulism\s+involving\b",
+        # "The following teeth are missing: 48, 46, 37" puts the numbers after
+        # the trigger, so every pattern keyed on "absence of <teeth>" walked
+        # straight past it, and nothing stopped the same teeth being described
+        # two sentences later.
+        r"\bteeth\s+(?:\w+\s+){0,2}?(?:are\s+)?(?:missing|absent)\b",
+        r"\bfollowing\s+teeth\b[^.]{0,24}?(?:missing|absent)",
         r"\btooth\s+\d{2}\s+is\s+(?:missing|absent)\b",
         r"\b\d{2}\s+(?:is\s+|are\s+)?(?:absent|missing)\b",
         r"\babsence\s+of\s+e\.?\s?d\.?",

@@ -175,6 +175,11 @@ _DANGLING_RE = re.compile(
 )
 
 
+#: Abbreviations the translation left behind. "e.d." is elementi dentali - it
+#: means nothing to an English-reading surgeon, and "Endodontic treatment
+#: involving e.d." is not a sentence anyone would sign.
+_UNTRANSLATED_RE = re.compile(r"\be\.\s?d\.|\bn\.?n\.?\b|\bs\.?p\.?a\.?\b", re.IGNORECASE)
+
 #: Back-references to a tooth named in a sentence that is no longer there.
 _LATTER_RE = re.compile(
     r"\b(?:this|the)\s+(?:latter|former|same|aforementioned|said)\b"
@@ -198,7 +203,7 @@ def is_well_formed(text: str) -> bool:
     stripped = text.strip()
     if not stripped or _DANGLING_RE.match(stripped):
         return False
-    if _LATTER_RE.search(stripped):
+    if _LATTER_RE.search(stripped) or _UNTRANSLATED_RE.search(stripped):
         return False
     return stripped.count("(") == stripped.count(")")
 

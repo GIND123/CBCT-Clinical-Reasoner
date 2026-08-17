@@ -278,6 +278,24 @@ def train_fold(fold_index: int, config_name: str | None = None) -> dict:
     return result.to_dict()
 
 
+@app.function(image=image, volumes=VOLUMES, timeout=900)
+def save_history(results: list[dict]) -> dict:
+    """Persist per-fold training histories to the volume.
+
+    Training runs through `train_fold.map` rather than `pipeline.train`, so
+    nothing was writing train_history.json and the training-curve figure was
+    silently skipped.
+    """
+    import json
+
+    paths, _ = _context(None)
+    destination = paths.artifacts / "train_history.json"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    volume.commit()
+    return {"stage": "save_history", "folds": len(results), "path": str(destination)}
+
+
 @app.function(image=image, volumes=VOLUMES, timeout=1800)
 def collect_oof(config_name: str | None = None) -> dict:
     """Merge per-fold probability slices into the single out-of-fold matrix."""
@@ -465,7 +483,9 @@ def main(
         show("verify_cache", verify_cache.remote(config_name))
         plan = results.get("splits") or splits.remote(config_name, strategy)
         indices = selected or list(range(len(plan["folds"])))  # type: ignore[index]
-        show("train", list(train_fold.map(indices, kwargs={"config_name": config_name})))
+        fold_results = list(train_fold.map(indices, kwargs={"config_name": config_name}))
+        show("train", fold_results)
+        save_history.remote(fold_results)
         show("collect_oof", collect_oof.remote(config_name))
     if post or stage in {"all", "calibrate"}:
         show("calibrate", calibrate.remote(config_name, prior_only))

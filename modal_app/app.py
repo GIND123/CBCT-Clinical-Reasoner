@@ -65,12 +65,16 @@ hf_cache = modal.Volume.from_name(f"{APP_NAME}-hf-cache", create_if_missing=True
 _base = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("git")
+    # Pinned to exactly what submission/requirements.txt and the Grand Challenge
+    # base image (pytorch/pytorch:2.9.1) provide. A checkpoint trained against a
+    # different torch or timm build can fail to load inside the algorithm
+    # container, and that failure surfaces only at submission time.
     .pip_install(
-        "numpy>=1.26,<3",
-        "SimpleITK>=2.3,<3",
-        "torch>=2.4",
-        "timm>=1.0",
-        "scikit-learn>=1.4",
+        "numpy==2.1.3",
+        "SimpleITK==2.4.1",
+        "torch==2.9.1",
+        "timm==1.0.19",
+        "scikit-learn==1.6.1",
         "huggingface-hub>=0.24",
         "tqdm>=4.66",
         "nltk>=3.9",

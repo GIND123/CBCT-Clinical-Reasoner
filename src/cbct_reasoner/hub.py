@@ -179,9 +179,47 @@ class HubClient:
         return target
 
 
+def _metric_table(evaluation: dict[str, Any]) -> str:
+    labels = (
+        ("final", "**final** (0.8 clinical + 0.2 captioning)"),
+        ("clinical", "clinical F1 (offline surrogate)"),
+        ("logical_precision", "logical precision"),
+        ("logical_recall", "logical recall"),
+        ("bleu_4", "BLEU-4 (grader-exact)"),
+        ("meteor", "METEOR (grader-exact)"),
+    )
+    rows = [f"| {label} | {evaluation[key]:.4f} |" for key, label in labels if key in evaluation]
+    if not rows:
+        return "_No evaluation recorded yet._"
+    return "\n".join(["| metric | value |", "|---|---:|", *rows])
+
+
+def _ablation_table(ablation: dict[str, Any]) -> str:
+    if not ablation:
+        return ""
+    rows = [
+        f"| {name} | {values['final']:.4f} | {values['clinical']:.4f} | "
+        f"{values['bleu_4']:.4f} | {values['meteor']:.4f} |"
+        for name, values in ablation.items()
+    ]
+    header = ["| variant | final | clinical | BLEU-4 | METEOR |", "|---|---:|---:|---:|---:|"]
+    return "\n## Ablation\n\n" + "\n".join([*header, *rows]) + "\n"
+
+
 def write_model_card(paths: Paths, config: HubConfig, summary: dict[str, Any]) -> Path:
-    """Emit a README the Hub renders, including the data-use caveat."""
-    evaluation = summary.get("evaluation", {}).get("surrogate", {})
+    """Emit a README the Hub renders, with the numbers and the caveats together."""
+    results_path = paths.artifacts / "results.json"
+    results: dict[str, Any] = (
+        json.loads(results_path.read_text(encoding="utf-8")) if results_path.is_file() else {}
+    )
+    evaluation = results.get("evaluation") or summary.get("evaluate", {}).get("surrogate", {}) or {}
+    dataset = results.get("dataset", {})
+    training = results.get("training", {})
+    metric_table = _metric_table(evaluation)
+    ablation_table = _ablation_table(results.get("ablation") or {})
+    fold_map = training.get("mean_val_map")
+    fold_line = f"Mean out-of-fold mAP across folds: **{fold_map:.4f}**\n" if fold_map else ""
+
     card = f"""---
 library_name: cbct-clinical-reasoner
 tags:
@@ -195,8 +233,14 @@ tags:
 # {config.project}
 
 Finding predictor and calibrated report decoder for **ODIN 2026 Task 1
-(ToothFairy4)**: maxillofacial and surgical report generation from a 3D CBCT
-volume.
+(ToothFairy4)**: generating a maxillofacial surgical-planning report from a
+single 3D CBCT volume.
+
+For each of ~{dataset.get("prototypes", "N")} clinician-written statements the
+model predicts the probability that it applies to this scan; per-statement
+thresholds fitted on out-of-fold predictions then decide which to emit. Selecting
+from observed clinician phrasing means an entailment failure can only come from
+choosing the wrong finding, never from invented language.
 
 ## Contents
 
@@ -204,34 +248,45 @@ volume.
 |---|---|
 | `bundle/prototypes.json` | Sentence-prototype label space built from the training corpus |
 | `bundle/decoder.json` | Per-prototype thresholds calibrated on out-of-fold predictions |
-| `bundle/checkpoints/` | Per-fold encoder checkpoints |
+| `bundle/checkpoints/` | Per-fold encoder checkpoints, ensembled at inference |
 | `bundle/config.json` | Preprocessing and training configuration |
 | `bundle/fallback_report.txt` | Prior-only report used if inference fails |
+| `plots/` | Diagnostic figures for every pipeline stage |
+| `results.json`, `RESULTS.md` | Metrics with provenance |
 
-## Reported development metrics
+## Development metrics
 
-These are **out-of-fold** numbers computed with the repository's offline RadFact
-surrogate, not official challenge scores.
+Out-of-fold over {dataset.get("cases", "?")} public training cases.
 
-```json
-{json.dumps(evaluation, indent=2) if evaluation else "{}"}
-```
+{metric_table}
+{ablation_table}
+{fold_line}
+## How to read these numbers
 
-BLEU-4 and METEOR are reimplementations of the grader's own local
-implementations and match NLTK to machine precision. The clinical component is a
-lexical surrogate; the real number requires `radfact_lite` with an LLM backend.
+* **BLEU-4 and METEOR are exact.** They reimplement the grader's own local
+  implementations and match NLTK to machine precision, so they compare directly
+  with the public leaderboard.
+* **The clinical score is a surrogate.** RadFact carries 80% of the challenge
+  ranking, but computing it needs an LLM judge. The figure above comes from an
+  offline lexical entailment model built to *rank* decoder variants cheaply. It
+  is not the challenge metric — obtain that with
+  `cbct-reasoner evaluate --radfact-lite`.
+* **These are in-domain.** Stratified folds over the public release, not the
+  hidden 50-case external-centre test set. Leave-one-centre-out
+  (`--strategy center`) is the honest external estimate and reads lower.
 
 ## Intended use and limitations
 
 Research artifact for a benchmark. **Not a medical device.** Generated text is a
 draft for review by a qualified clinician and must not be used for patient care.
+It has not been validated for any clinical purpose.
 
 ## Data provenance
 
-Derived from the access-controlled ToothFairy4 release. The prototype bank
+Derived from the access-controlled ToothFairy4 release. `prototypes.json`
 contains sentences taken verbatim from clinical reports, so this repository is
-private by default and must not be made public without checking the ToothFairy4
-data-use agreement.
+**private by default** and must not be made public without checking the
+ToothFairy4 data-use agreement.
 """
     output = paths.artifacts / "MODEL_CARD.md"
     output.parent.mkdir(parents=True, exist_ok=True)

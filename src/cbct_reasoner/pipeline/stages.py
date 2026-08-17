@@ -401,6 +401,17 @@ def package(
     decoder = ReportDecoder.load(paths.decoder, bank)
     checkpoints = tuple(sorted(paths.checkpoints.glob("fold*.pt"))) if include_checkpoints else ()
 
+    # A fold that failed leaves the ensemble short. That is legitimate, but it
+    # must be visible: an ensemble quietly missing two of five members is a
+    # different model from the one the out-of-fold score describes.
+    if include_checkpoints and paths.folds.is_file():
+        expected = len(SplitPlan.load(paths.folds))
+        if len(checkpoints) != expected:
+            _log(
+                f"[package] WARNING packaging {len(checkpoints)} of {expected} fold "
+                f"checkpoints; the bundle is not the ensemble that was evaluated"
+            )
+
     evaluation_path = paths.artifacts / "evaluation.json"
     extra: dict[str, Any] = {}
     if evaluation_path.is_file():
@@ -422,6 +433,9 @@ def package(
         "stage": "package",
         "bundle": str(paths.bundle),
         "checkpoints": len(checkpoints),
+        "expected_checkpoints": (
+            len(SplitPlan.load(paths.folds)) if paths.folds.is_file() else None
+        ),
         "size_mb": round(size / 1e6, 2),
     }
 

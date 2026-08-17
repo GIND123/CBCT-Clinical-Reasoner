@@ -110,3 +110,32 @@ def test_predict_rejects_a_mismatched_descriptor() -> None:
 
     with pytest.raises(ValueError, match="descriptor must have shape"):
         model.predict(np.zeros(features.shape[1] + 5))
+
+
+def test_shallow_import_does_not_require_torch(monkeypatch) -> None:
+    """The slim submission image ships without torch.
+
+    Regression: models/__init__ eagerly imported the torch-backed modules, so
+    importing models.shallow raised ModuleNotFoundError inside that image. The
+    bundle caught it as a generic failure and silently returned the prior report
+    - a worse model shipping while appearing healthy.
+    """
+    import builtins
+    import importlib
+    import sys
+
+    real_import = builtins.__import__
+
+    def blocked(name, *args, **kwargs):
+        if name == "torch" or name.startswith("torch."):
+            raise ModuleNotFoundError("No module named 'torch'")
+        return real_import(name, *args, **kwargs)
+
+    for module in [m for m in sys.modules if m.startswith("cbct_reasoner.models")]:
+        monkeypatch.delitem(sys.modules, module, raising=False)
+    monkeypatch.delitem(sys.modules, "torch", raising=False)
+    monkeypatch.setattr(builtins, "__import__", blocked)
+
+    module = importlib.import_module("cbct_reasoner.models.shallow")
+    assert module.ShallowModel is not None
+    assert importlib.import_module("cbct_reasoner.models").ShallowConfig is not None

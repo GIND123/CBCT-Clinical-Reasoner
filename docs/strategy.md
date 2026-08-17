@@ -235,6 +235,64 @@ cluster, and its representative then asserts a specific list of eight teeth that
 is wrong for almost every case. Keeping numbers distinct costs nothing and gains
 6 points of oracle score.
 
+### The fine-tuned encoder did not work, and the measurement that showed it
+
+The 29M-parameter `slice2d` encoder trained cleanly - five folds, loss 97 → 60,
+out-of-fold coverage 1.0 - and its validation mAP even drifted upward from 0.057
+to 0.072. All of that was noise. Per-prototype AUC against the prior, which
+scores exactly 0.500 by construction, tells the real story:
+
+| support band | prototypes | mean AUC |
+|---|---:|---:|
+| 1-5 cases | 641 | 0.477 |
+| 6-20 cases | 297 | 0.484 |
+| 21-60 cases | 35 | 0.474 |
+| 60+ cases | 12 | 0.490 |
+| **prevalence-weighted** | | **0.486** |
+
+Every band sits at or slightly below chance, and for each prevalent statement the
+mean predicted probability was the same for positives and negatives (e.g. 0.891
+vs 0.909). The model memorised 497 training cases and generalised nothing.
+
+**mAP was the wrong instrument.** Averaged over a thousand statements it is
+dominated by prototypes seen two or three times, where average precision is
+noise, so it barely moves whatever the model does — and it moved *upward* while
+the model was getting no better. Any label space this sparse needs a
+selection metric restricted to learnable columns; that is what
+`EncoderConfig.min_head_support` is for.
+
+The decisive follow-up was a control, not a bigger model: **a ten-feature
+logistic regression over acquisition geometry alone**, cross-validated.
+
+| statement | n | AUC from geometry alone |
+|---|---:|---:|
+| Mandibular condyles: excluded from the acquisition | 104 | 0.876 |
+| Maxilla: partially included in the scan | 112 | 0.797 |
+| Mandibular canal with a regular course | 104 | 0.754 |
+| Mandibular CT including the mandibular body | 172 | 0.712 |
+| Mandibular condyles are not included in the scan | 277 | 0.611 |
+
+So the task *is* learnable from information the network already received on its
+auxiliary input — the deep model was the problem, not the problem's difficulty.
+
+That result motivated `models/shallow.py`: one heavily-regularised linear model
+per statement over a 122-dimensional global descriptor (acquisition geometry,
+coarse per-axis bone occupancy, intensity shape), fitted on the same folds.
+
+| predictor | mean AUC | prevalence-weighted | support ≥ 12 (n=112) |
+|---|---:|---:|---:|
+| corpus prior | 0.500 | 0.500 | 0.500 |
+| fine-tuned encoder (29M params) | 0.479 | 0.486 | 0.486 |
+| **linear, 122 features** | 0.519 | **0.593** | **0.669** |
+
+The deployable form is **52 KB** against 580 MB of fold checkpoints.
+
+The general lesson is not "linear models are better." It is that with 622 cases
+and ~1000 sparse targets, the recoverable signal is coarse and global — which jaw
+is in the field of view, how much bone and where — and a model with the capacity
+to memorise the training set will do exactly that. The control experiment cost
+thirty seconds and was worth more than the GPU hour it audited.
+
 ### Calibrated prior as a reference point
 
 An image-free, corpus-prior report - one shared threshold, no encoder - scores

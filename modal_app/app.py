@@ -498,6 +498,139 @@ def store_report(payload: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Real RadFact, served locally
+# ---------------------------------------------------------------------------
+
+# Built from a clean base, NOT from _base: that image pins torch==2.9.1 to match
+# the submission runtime, and vLLM ships its own torch requirement. Letting pip
+# resolve vLLM's stack independently avoids the conflict that killed the server.
+radfact_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .pip_install("vllm==0.8.5", "radfact-lite>=0.1.0", "openai>=1.0.0", "requests")
+    .env({"PYTHONPATH": "/root/src", "CBCT_WORK_DIR": VOLUME_ROOT, "HF_HOME": "/hf"})
+    .add_local_dir(REPO_ROOT / "src", "/root/src")
+    .add_local_dir(REPO_ROOT / "configs", "/root/configs")
+)
+
+
+@app.function(
+    image=radfact_image,
+    volumes=VOLUMES,
+    gpu="A100-40GB",
+    timeout=6 * 60 * 60,
+    memory=65536,
+)
+def radfact_eval(task: dict) -> dict:
+    """Measure true RadFact for candidate reports with a locally served LLM.
+
+    RadFact carries 80% of the Final Score that decides the shortlist, and every
+    number reported so far used an offline lexical surrogate. This runs the
+    organizers' own ``radfact_lite`` against a vLLM server started inside this
+    container, so the clinical reports never leave the machine and no external
+    API key is required.
+    """
+    import json
+    import subprocess
+    import time
+
+    import requests
+
+    from cbct_reasoner.data.corpus import load_corpus
+
+    model = task.get("model", "Qwen/Qwen2.5-7B-Instruct")
+    port = 8000
+    # Server output goes to a file rather than /dev/null: the first attempt died
+    # at startup and the discarded log made the cause invisible.
+    log_path = Path("/tmp/vllm.log")
+    log_handle = log_path.open("w")
+    server = subprocess.Popen(
+        [
+            "python",
+            "-m",
+            "vllm.entrypoints.openai.api_server",
+            "--model",
+            model,
+            "--port",
+            str(port),
+            "--max-model-len",
+            "4096",
+            "--gpu-memory-utilization",
+            "0.90",
+        ],
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+    )
+
+    def server_tail(lines: int = 40) -> str:
+        try:
+            return chr(10).join(log_path.read_text(errors="replace").splitlines()[-lines:])
+        except OSError:
+            return "(no server log)"
+
+    base_url = f"http://127.0.0.1:{port}/v1"
+    try:
+        deadline = time.time() + 900
+        while time.time() < deadline:
+            try:
+                if requests.get(f"{base_url}/models", timeout=5).status_code == 200:
+                    break
+            except Exception:
+                pass
+            if server.poll() is not None:
+                raise RuntimeError(
+                    f"vLLM exited at startup (code {server.returncode}): {server_tail()}"
+                )
+            time.sleep(5)
+        else:
+            raise RuntimeError(f"vLLM did not become ready: {server_tail()}")
+        print("vLLM ready", flush=True)
+
+        import os
+
+        os.environ.setdefault("OPENAI_API_KEY", "local")
+        from cbct_reasoner.metrics.radfact import radfact_lite_scores
+
+        paths, _ = _context(None)
+        entries = load_corpus(paths.corpus)
+        limit = int(task.get("limit", 120))
+        # Stratify by centre so the estimate is not dominated by the largest one.
+        centres: dict[str, list] = {}
+        for entry in entries:
+            centres.setdefault(entry.center, []).append(entry)
+        chosen = []
+        per_centre = max(1, limit // max(1, len(centres)))
+        for group in centres.values():
+            chosen.extend(group[:per_centre])
+        chosen = chosen[:limit]
+
+        out = {}
+        for name, report in task["reports"].items():
+            payload = radfact_lite_scores(
+                {e.case_id: report for e in chosen},
+                {e.case_id: e.reference for e in chosen},
+                model=model,
+                provider="openai",
+                base_url=base_url,
+                api_key_env_var="OPENAI_API_KEY",
+                timeout=120.0,
+                max_retries=1,
+            )
+            out[name] = payload["aggregates"]
+            print(name, json.dumps(payload["aggregates"]), flush=True)
+
+        destination = paths.artifacts / "radfact_real.json"
+        destination.write_text(
+            json.dumps({"model": model, "cases": len(chosen), "results": out}, indent=2),
+            encoding="utf-8",
+        )
+        volume.commit()
+        return {"model": model, "cases": len(chosen), "results": out}
+    finally:
+        server.terminate()
+        log_handle.close()
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 

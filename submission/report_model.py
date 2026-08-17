@@ -4,13 +4,13 @@ Do not edit by hand. This is a module rather than a data file on purpose: the
 platform mounts its own volume over /opt/ml/model, and an import cannot be
 shadowed by a mount.
 
-Constant report: 15 statements, FINAL 0.4177 (RadFact P 0.521 R 0.416, BLEU 0.1176, METEOR 0.3591).
-Adaptive report: 10 core + 5 gated statements, FINAL 0.4288 (RadFact P 0.570 R 0.409, BLEU 0.1281, METEOR 0.3516).
+Constant report: 13 statements, FINAL 0.3999 (RadFact P 0.470 R 0.416, BLEU 0.1157, METEOR 0.3524).
+Adaptive report: 8 core + 5 gated statements, FINAL 0.4122 (RadFact P 0.522 R 0.405, BLEU 0.1268, METEOR 0.3431).
 """
 
 from __future__ import annotations
 
-CONSTANT_REPORT = 'Mandibular CT including within the acquisition volume the mandibular body and excluding the coronoid and condylar processes. Maxilla: not included. Mandibular condyles are not included in the scan. Mandible: mandibular canal with a predominantly lingual course, in close relationship with the roots of teeth 38 and 48. Mandible: absence from the arch of teeth 35, 36, 37, 38, 48. At the mandibular level, teeth 38 and 48 are semi-impacted with a vertical long axis. It has undergone endodontic treatment with incongruent root canal therapy as it does not reach the dental apex. Composite conservative restorations are present on the occlusal surfaces of the crowns of teeth 36, 37, 46 and 47. 38 and 48 erupted in the arch. Mandible with severe bone atrophy and complete edentulism. Tooth 48 is minimally extruded, mesioverted and impacting on the distal root of 47. A prosthetic crown is present. The mandibular canal shows a predominantly lingual course on the right. Mandibular canal with a regular course and predominantly lingual position. The mandibular canals have an apico-lingual course bilaterally.'
+CONSTANT_REPORT = 'Mandibular CT including within the acquisition volume the mandibular body and excluding the coronoid and condylar processes. Maxilla: not included. Mandibular condyles are not included in the scan. Mandible: mandibular canal with a predominantly lingual course, in close relationship with the roots of teeth 38 and 48. At the mandibular level, teeth 38 and 48 are semi-impacted with a vertical long axis. Composite conservative restorations are present on the occlusal surfaces of the crowns of teeth 36, 37, 46 and 47. Teeth 34, 35, 36, 45, 46 and 47 have been endodontically treated and have already undergone prosthetic reconstruction. Teeth from 48 to 38 in the arch. Tooth 48 is minimally extruded, mesioverted and impacting on the distal root of 47. A radiolucent area is present, possibly compatible with a post-extraction socket of the mesial root of tooth 36. The mandibular canal shows a predominantly lingual course on the right. The mandibular canals show a regular course bilaterally. The mandibular canal shows a course with predominantly lingual development, with regular cortical definition and without evident pathological relationships with the remaining teeth.'
 
 ADAPTIVE = {
     "version": 1,
@@ -19,36 +19,32 @@ ADAPTIVE = {
         "Mandibular CT including within the acquisition volume the mandibular body and excluding the coronoid and condylar processes.",
         "Mandible: mandibular canal with a predominantly lingual course, in close relationship with the roots of teeth 38 and 48.",
         "Maxilla: not included.",
-        "Mandible: absence from the arch of teeth 35, 36, 37, 38, 48.",
         "At the mandibular level, teeth 38 and 48 are semi-impacted with a vertical long axis.",
         "The mandibular canal shows a predominantly lingual course on the right.",
-        "it has undergone endodontic treatment with incongruent root canal therapy as it does not reach the dental apex.",
+        "The mandibular canals show a regular course bilaterally.",
         "Composite conservative restorations are present on the occlusal surfaces of the crowns of teeth 36, 37, 46 and 47.",
-        "38 and 48 erupted in the arch.",
-        "Mandible with severe bone atrophy and complete edentulism.",
-        "Mandibular canal with a regular course and predominantly lingual position.",
-        "The mandibular canals have an apico-lingual course bilaterally.",
-        "Tooth 48 is minimally extruded, mesioverted and impacting on the distal root of 47.",
-        "a prosthetic crown is present."
+        "Teeth 34, 35, 36, 45, 46 and 47 have been endodontically treated and have already undergone prosthetic reconstruction.",
+        "Teeth from 48 to 38 in the arch.",
+        "The mandibular canal shows a course with predominantly lingual development, with regular cortical definition and without evident pathological relationships with the remaining teeth.",
+        "A radiolucent area is present, possibly compatible with a post-extraction socket of the mesial root of tooth 36.",
+        "Tooth 48 is minimally extruded, mesioverted and impacting on the distal root of 47."
     ],
     "core": [
         0,
-        4,
         7,
         8,
         9,
-        10,
-        14,
-        6,
         11,
-        12
+        5,
+        6,
+        10
     ],
     "conditional": [
         1,
         2,
         3,
-        5,
-        13
+        4,
+        12
     ],
     "coefficients": [
         [
@@ -118,7 +114,7 @@ ADAPTIVE = {
         0.4,
         0.3,
         0.4,
-        0.3,
+        0.5,
         0.3
     ],
     "mean": [
@@ -149,15 +145,13 @@ ADAPTIVE = {
         0,
         2,
         4,
-        5,
         7,
         8,
         9,
-        10,
-        13,
-        14,
-        6,
+        12,
         11,
-        12
+        5,
+        6,
+        10
     ]
 }

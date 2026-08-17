@@ -276,7 +276,26 @@ def push_all(
             message="Update diagnostic figures",
         )
 
-    for name in ("calibration.json", "evaluation.json", "train_history.json", "ablation.json"):
+    # The results summary belongs beside the model, not only in the run log: it
+    # is what the model card cites and what a later run is compared against.
+    for name in ("results.json", "RESULTS.md"):
+        candidate = paths.artifacts / name
+        if candidate.is_file():
+            urls["results"] = client.upload_file(
+                candidate,
+                repo_id=config.model_repo,
+                repo_type="model",
+                path_in_repo=name,
+                message=f"Update {name}",
+            )
+
+    for name in (
+        "calibration.json",
+        "evaluation.json",
+        "train_history.json",
+        "ablation.json",
+        "results.json",
+    ):
         candidate = paths.artifacts / name
         if candidate.is_file():
             urls["runs"] = client.upload_file(

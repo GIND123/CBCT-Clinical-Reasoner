@@ -41,6 +41,38 @@ bash submission/do_save.sh
 `do_test_run.sh` runs with `--network none`, as the platform does, and asserts
 the output contract.
 
+### Post-mortem: why the first submission scored 16th
+
+It emitted the hardcoded 52-token fallback in `inference.py` for **all 50 test
+cases**. The evidence is arithmetic rather than circumstantial — that paragraph
+scores BLEU `0.0111 ± 0.0139` / METEOR `0.0984 ± 0.0350` against the training
+references, and the leaderboard reported `0.0161 ± 0.0129` / `0.1088 ± 0.0284`.
+Mean and spread both match; nothing else in the repository scores that low.
+
+The container could not load its bundle. **Grand Challenge mounts its own model
+volume at `/opt/ml/model`, which shadows whatever the image baked into that
+path**, so `prototypes.json` did not exist at run time. It never reproduced
+locally because nothing local shadows it — the local `docker run` test passed
+every time.
+
+The model itself was fine: the same bundle scores BLEU 0.1493 / METEOR 0.3064
+out-of-fold, which would have placed near the top. The failure cost roughly
+fourteen positions and none of it was modelling.
+
+Three changes prevent a recurrence:
+
+1. The bundle is baked to **`/opt/app/model`** as well, and `inference.py`
+   searches several paths for one that actually contains `prototypes.json`
+   instead of assuming a path exists.
+2. The last-resort fallback is the **corpus-optimized constant report**, embedded
+   in the source rather than read from disk, so a total failure still scores
+   competitively instead of discarding the run.
+3. The container test now mounts an **empty directory over `/opt/ml/model`** to
+   reproduce the platform's shadowing before shipping.
+
+The general lesson: a local container test that cannot reproduce the platform's
+mounts is not a test of the platform. Simulate the mount.
+
 ### Verified
 
 The full path has been exercised on a real case with a prior-only bundle: the

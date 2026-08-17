@@ -143,6 +143,36 @@ def conflicts(first: str, second: str) -> str | None:
     return None
 
 
+#: Statements that begin with a reference to something a previous sentence
+#: named. Lifted out of one patient's report, they refer to nothing.
+_DANGLING_RE = re.compile(
+    r"^\s*(?:it\b|they\b|the\s+(?:fifth|sixth|seventh|eighth)\s+tooth\b|"
+    r"a\s+prosthetic\s+crown\s+is\s+present)",
+    re.IGNORECASE,
+)
+
+
+def is_generic(text: str) -> bool:
+    """Can this statement be asserted without knowing which patient it is?
+
+    Statements naming specific teeth cannot. Across this corpus they hold for a
+    mean of 1.6% of cases, against 3.5% for statements that name none - so in a
+    report served to every patient, a tooth number is wrong about 98% of the
+    time. It still earns surrogate credit through token overlap, which is why
+    selection reaches for it, and it is what turns the report into a patchwork
+    that says teeth 38 and 48 are absent, impacted, and erupted at once.
+
+    A radiologist who cannot resolve the specifics writes generically instead,
+    and a generic statement that is usually true beats a specific one that is
+    usually false on precision as well as on reading.
+    """
+    from cbct_reasoner.ontology import BARE_FDI_RE, TOOTH_NUMBER_RE
+
+    if _DANGLING_RE.match(text):
+        return False
+    return not (TOOTH_NUMBER_RE.search(text) or BARE_FDI_RE.search(text))
+
+
 def consistent_subset(texts: Sequence[str]) -> list[int]:
     """Positions of statements that neither contradict nor repeat an earlier one."""
     kept: list[int] = []

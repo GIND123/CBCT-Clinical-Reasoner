@@ -27,7 +27,11 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from cbct_reasoner.data.corpus import load_corpus  # noqa: E402
 from cbct_reasoner.decode.calibrate import CalibrationScorer  # noqa: E402
-from cbct_reasoner.decode.redundancy import assertion_key, conflicts  # noqa: E402
+from cbct_reasoner.decode.redundancy import (  # noqa: E402
+    assertion_key,
+    conflicts,
+    is_generic,
+)
 from cbct_reasoner.prototypes import PrototypeBank  # noqa: E402
 
 
@@ -37,6 +41,11 @@ def main() -> int:
     parser.add_argument("--max-sentences", type=int, default=26)
     parser.add_argument("--refine-rounds", type=int, default=3)
     parser.add_argument("--out", default="artifacts/final_score_report")
+    parser.add_argument(
+        "--allow-tooth-specific",
+        action="store_true",
+        help="allow statements naming specific teeth, true for ~1.6%% of patients",
+    )
     parser.add_argument(
         "--allow-conflicts",
         action="store_true",
@@ -53,6 +62,8 @@ def main() -> int:
     )
     order = {index: position for position, index in enumerate(bank.render_order)}
     candidates = [p.index for p in bank if p.prevalence >= args.min_prevalence]
+    if not args.allow_tooth_specific:
+        candidates = [i for i in candidates if is_generic(bank[i].text)]
     print(f"{len(entries)} cases | {len(candidates)} candidate statements of {len(bank)}")
 
     def evaluate(chosen: set[int]):

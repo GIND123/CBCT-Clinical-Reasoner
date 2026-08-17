@@ -25,20 +25,39 @@ reports**).
 | Artifacts | Private Hugging Face repo — bundle, checkpoints, figures, metrics |
 | Submission | Algorithm image builds from the organizer's base image and passes a no-network container test |
 
-Measured reference points, out-of-fold:
+## Results
 
-| | final | BLEU-4 | METEOR |
-|---|---:|---:|---:|
-| Oracle (perfect encoder on this label space) | 0.6008 | 0.3410 | 0.4726 |
-| Calibrated prior (no imaging at all) | 0.3202 | 0.1225 | 0.2568 |
-| Public leaderboard #1 at time of writing | — | 0.1317 | 0.3191 |
+Out-of-fold over the 622 public cases. Every predictor is decoded with the
+thresholds fitted for it and scored through the same function
+`cbct-reasoner evaluate` uses.
 
-The middle row is the one worth internalising: an image-free corpus prior lands
-in the same range as the visible leaderboard, so the public board is not yet
-separating methods on imaging ability. `cbct-reasoner ablation` therefore scores
-the prior on identical machinery — if the encoder cannot beat it out-of-fold, the
-prior-only bundle is the honest submission. See
-[docs/strategy.md](docs/strategy.md).
+| predictor | final | clinical* | BLEU-4 | METEOR |
+|---|---:|---:|---:|---:|
+| corpus prior (no imaging) | **0.3575** | 0.3937 | 0.1170 | 0.3082 |
+| **linear, 122 features** *(shipped)* | 0.3544 | 0.3861 | **0.1493** | 0.3064 |
+| fine-tuned encoder, 29M params | 0.3403 | 0.3752 | 0.1331 | 0.2684 |
+| — oracle on this label space | 0.6008 | 0.6492 | 0.3410 | 0.4726 |
+| — public leaderboard #1 | — | — | 0.1317 | 0.3191 |
+
+\* offline surrogate, **not** RadFact — see the caveat below.
+
+BLEU-4 and METEOR are exact, so those columns compare directly with the
+leaderboard: the shipped model's **0.1493 BLEU-4 exceeds the current leader's
+0.1317**, with METEOR close behind (0.3064 vs 0.3191).
+
+Two results are worth internalising:
+
+1. **The fine-tuned encoder learned nothing.** Out-of-fold AUC 0.486
+   prevalence-weighted — chance — while a ten-feature logistic regression over
+   acquisition geometry alone reaches 0.61–0.88 on the same statements. It
+   memorised 497 cases. The 122-feature linear model reaches AUC 0.669 on the
+   learnable statements and is **52 KB** against 580 MB of checkpoints.
+2. **An image-free prior is competitive on the public metrics.** So the visible
+   leaderboard is not yet separating methods on imaging ability, and any entry
+   must beat a well-calibrated prior before it beats anyone else.
+
+`cbct-reasoner ablation` scores the prior on identical machinery for exactly this
+reason. Full derivation in [docs/strategy.md](docs/strategy.md).
 
 ## Quick start
 

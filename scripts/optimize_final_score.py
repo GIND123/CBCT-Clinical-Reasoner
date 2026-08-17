@@ -31,6 +31,7 @@ from cbct_reasoner.decode.redundancy import (  # noqa: E402
     assertion_key,
     conflicts,
     is_generic,
+    is_well_formed,
 )
 from cbct_reasoner.prototypes import PrototypeBank  # noqa: E402
 
@@ -42,9 +43,9 @@ def main() -> int:
     parser.add_argument("--refine-rounds", type=int, default=3)
     parser.add_argument("--out", default="artifacts/final_score_report")
     parser.add_argument(
-        "--allow-tooth-specific",
+        "--generic-only",
         action="store_true",
-        help="allow statements naming specific teeth, true for ~1.6%% of patients",
+        help="drop statements naming specific teeth; costs ~0.079 Final",
     )
     parser.add_argument(
         "--allow-conflicts",
@@ -62,7 +63,13 @@ def main() -> int:
     )
     order = {index: position for position, index in enumerate(bank.render_order)}
     candidates = [p.index for p in bank if p.prevalence >= args.min_prevalence]
-    if not args.allow_tooth_specific:
+    # Malformed sentences are dropped always: a clause opening with "it has
+    # undergone" or ending in an unmatched bracket is unreadable wherever it
+    # lands. Tooth numbers are kept by default now that the consistency rules
+    # detect the contradictions they used to create - banning them outright cost
+    # 0.079 Final and still left dangling references behind.
+    candidates = [i for i in candidates if is_well_formed(bank[i].text)]
+    if args.generic_only:
         candidates = [i for i in candidates if is_generic(bank[i].text)]
     print(f"{len(entries)} cases | {len(candidates)} candidate statements of {len(bank)}")
 

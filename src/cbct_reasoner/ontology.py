@@ -73,9 +73,22 @@ class Concept:
     tooth_specific: bool = False
     lateralized: bool = False
     measurable: bool = False
+    #: True when the trigger phrase itself expresses absence ("absence of teeth",
+    #: "edentulous"). Those words are also negation cues, so without this the
+    #: concept negates itself and "absence of teeth 36 and 46" comes out as
+    #: missing_tooth:absent - a double negative meaning the teeth are present.
+    denotes_absence: bool = False
 
     def matches(self, text: str) -> bool:
         return any(pattern.search(text) for pattern in self.patterns)
+
+    def match_span(self, text: str) -> tuple[int, int] | None:
+        spans = [
+            (match.start(), match.end())
+            for pattern in self.patterns
+            if (match := pattern.search(text))
+        ]
+        return min(spans, key=lambda s: s[1]) if spans else None
 
     def match_end(self, text: str) -> int | None:
         """End offset of the earliest-ending match, or None if the concept is absent.
@@ -95,6 +108,7 @@ def _c(
     tooth_specific: bool = False,
     lateralized: bool = False,
     measurable: bool = False,
+    denotes_absence: bool = False,
 ) -> Concept:
     return Concept(
         key=key,
@@ -104,6 +118,7 @@ def _c(
         tooth_specific=tooth_specific,
         lateralized=lateralized,
         measurable=measurable,
+        denotes_absence=denotes_absence,
     )
 
 
@@ -203,17 +218,26 @@ CONCEPTS: tuple[Concept, ...] = (
         r"\bmissing\s+teeth\b",
         r"\btoothless\b",
         tooth_specific=True,
+        denotes_absence=True,
     ),
     _c(
         "missing_tooth",
         "dentition",
         "missing tooth",
         r"\b(?:absence|absent|missing|agenesis)\s+of\s+(?:the\s+)?(?:tooth|teeth|element)",
+        # "Absence from the arch of teeth 35, 36, 37" is how these reports
+        # usually put it, and the pattern above misses it because "from the
+        # arch" sits between the two words. That left the sentence carrying no
+        # absence concept at all, so nothing stopped the same teeth being given
+        # fillings two sentences later.
+        r"\b(?:absence|absent|missing)\s+(?:\w+\s+){0,3}?(?:from|in)\s+the\s+arch",
+        r"\bedentulism\s+involving\b",
         r"\btooth\s+\d{2}\s+is\s+(?:missing|absent)\b",
         r"\b\d{2}\s+(?:is\s+|are\s+)?(?:absent|missing)\b",
         r"\babsence\s+of\s+e\.?\s?d\.?",
         r"\bedentulous\s+(?:space|area|region|site)s?\b",
         tooth_specific=True,
+        denotes_absence=True,
     ),
     _c(
         "impacted_tooth",
@@ -734,13 +758,17 @@ def extract_mentions(phrase: str) -> list[Mention]:
 
     mentions = []
     for concept in CONCEPTS:
-        end = concept.match_end(phrase)
-        if end is None:
+        span = concept.match_span(phrase)
+        if span is None:
             continue
+        start, end = span
+        # A concept that already means absence is not negated by its own trigger
+        # words, only by a cue standing in front of it ("no absence of ...").
+        boundary = start if concept.denotes_absence else end
         mentions.append(
             Mention(
                 concept=concept.key,
-                negated=any(cue < end for cue in cues),
+                negated=any(cue < boundary for cue in cues),
                 uncertain=uncertain,
                 laterality=laterality if concept.lateralized else "unspecified",
                 teeth=teeth if concept.tooth_specific else (),

@@ -190,6 +190,19 @@ def verify_cache(config_name: str | None = None) -> dict:
     from cbct_reasoner.data.corpus import load_corpus
     from cbct_reasoner.data.preprocess import is_cached
 
+    def npy_shape(path):
+        # Read only the .npy header. mmap on a network volume can fault in the
+        # whole array, which turns a metadata check into a 5 GB download.
+        with path.open("rb") as stream:
+            major, _ = np.lib.format.read_magic(stream)
+            reader = (
+                np.lib.format.read_array_header_1_0
+                if major == 1
+                else np.lib.format.read_array_header_2_0
+            )
+            shape, _, _ = reader(stream)
+        return shape
+
     paths, config = _context(config_name)
     entries = load_corpus(paths.corpus)
     shapes: collections.Counter = collections.Counter()
@@ -201,7 +214,7 @@ def verify_cache(config_name: str | None = None) -> dict:
         if not array_path.is_file():
             missing.append(entry.case_id)
             continue
-        shapes[np.load(array_path, mmap_mode="r").shape] += 1
+        shapes[npy_shape(array_path)] += 1
         if not is_cached(paths.cache, entry.case_id, config.preprocess):
             stale.append(entry.case_id)
 

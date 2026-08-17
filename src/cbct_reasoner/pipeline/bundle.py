@@ -31,6 +31,7 @@ CONFIG_NAME = "config.json"
 FALLBACK_NAME = "fallback_report.txt"
 MANIFEST_NAME = "bundle.json"
 CHECKPOINT_DIR = "checkpoints"
+SHALLOW_NAME = "shallow.npz"
 
 
 class InferenceBundle:
@@ -45,6 +46,7 @@ class InferenceBundle:
         preprocess: PreprocessConfig,
         fallback_report: str,
         checkpoints: tuple[Path, ...] = (),
+        shallow: Path | None = None,
     ) -> None:
         self.root = Path(root)
         self.bank = bank
@@ -52,7 +54,9 @@ class InferenceBundle:
         self.preprocess = preprocess
         self.fallback_report = fallback_report
         self.checkpoints = checkpoints
+        self.shallow_path = shallow
         self._models: list[Any] | None = None
+        self._shallow: Any | None = None
 
     # -- construction ------------------------------------------------------
 
@@ -72,6 +76,7 @@ class InferenceBundle:
             else decoder.decode(bank.prevalence)
         )
         checkpoints = tuple(sorted((directory / CHECKPOINT_DIR).glob("fold*.pt")))
+        shallow = directory / SHALLOW_NAME
         return cls(
             directory,
             bank=bank,
@@ -79,6 +84,7 @@ class InferenceBundle:
             preprocess=config.preprocess,
             fallback_report=fallback,
             checkpoints=checkpoints,
+            shallow=shallow if shallow.is_file() else None,
         )
 
     @staticmethod
@@ -91,6 +97,7 @@ class InferenceBundle:
         checkpoints: tuple[Path, ...] = (),
         fallback_report: str | None = None,
         extra: dict[str, Any] | None = None,
+        shallow: Path | None = None,
     ) -> Path:
         directory = Path(root)
         (directory / CHECKPOINT_DIR).mkdir(parents=True, exist_ok=True)
@@ -108,6 +115,9 @@ class InferenceBundle:
                 target.write_bytes(Path(checkpoint).read_bytes())
             copied.append(target.name)
 
+        if shallow is not None and Path(shallow).is_file():
+            (directory / SHALLOW_NAME).write_bytes(Path(shallow).read_bytes())
+
         (directory / MANIFEST_NAME).write_text(
             json.dumps(
                 {
@@ -115,6 +125,7 @@ class InferenceBundle:
                     "num_prototypes": len(bank),
                     "num_training_cases": bank.num_cases,
                     "checkpoints": copied,
+                    "shallow": (directory / SHALLOW_NAME).is_file(),
                     "preprocess": asdict(config.preprocess),
                     **(extra or {}),
                 },
@@ -150,7 +161,9 @@ class InferenceBundle:
         return models
 
     def probabilities(self, volume_path: str | Path) -> np.ndarray:
-        """Ensemble finding probabilities; falls back to the corpus prior."""
+        """Finding probabilities, degrading to the corpus prior."""
+        if self.shallow_path is not None:
+            return self._shallow_probabilities(volume_path)
         models = self._load_models()
         if not models:
             return self.bank.prevalence.astype(np.float32)
@@ -169,6 +182,26 @@ class InferenceBundle:
                 logits = model(volume.to(device), meta_tensor.to(device))
                 outputs.append(torch.sigmoid(logits.float()).cpu().numpy()[0])
         return np.mean(outputs, axis=0).astype(np.float32)
+
+    def _shallow_probabilities(self, volume_path: str | Path) -> np.ndarray:
+        """Linear per-statement model over the global descriptor.
+
+        Chosen over the fine-tuned encoder on measured out-of-fold evidence;
+        see docs/strategy.md.
+        """
+        import numpy as _np
+
+        from cbct_reasoner.data.preprocess import preprocess_volume
+        from cbct_reasoner.models.shallow import ShallowConfig as _ShallowConfig
+        from cbct_reasoner.models.shallow import ShallowModel, volume_descriptor
+
+        if self._shallow is None:
+            self._shallow = ShallowModel.load(self.shallow_path)
+        array, meta = preprocess_volume(volume_path, self.preprocess)
+        descriptor = _np.concatenate(
+            [meta.to_vector(), volume_descriptor(_np.asarray(array), _ShallowConfig())]
+        )
+        return self._shallow.predict(descriptor)
 
     def predict(self, volume_path: str | Path) -> str:
         """Generate one report, degrading to the fallback rather than failing."""

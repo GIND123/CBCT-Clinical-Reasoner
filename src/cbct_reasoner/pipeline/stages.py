@@ -249,7 +249,15 @@ def train(
     }
 
 
-def load_oof(paths: Paths) -> tuple[list[str], np.ndarray, np.ndarray]:
+def load_oof(paths: Paths, source: Path | None = None) -> tuple[list[str], np.ndarray, np.ndarray]:
+    """Load out-of-fold probabilities, optionally from an alternative predictor."""
+    if source is not None:
+        with np.load(source, allow_pickle=False) as archive:
+            return (
+                [str(value) for value in archive["case_ids"].tolist()],
+                archive["probabilities"].astype(np.float32),
+                archive["covered"].astype(bool),
+            )
     if not paths.oof.is_file():
         raise FileNotFoundError(
             f"No out-of-fold predictions at {paths.oof}. Run `cbct-reasoner train` first, "
@@ -275,6 +283,7 @@ def calibrate_decoder(
     prior_only: bool = False,
     rounds: int | None = None,
     refine_top: int | None = None,
+    oof: Path | None = None,
 ) -> dict[str, Any]:
     """Fit per-prototype thresholds on out-of-fold probabilities."""
     entries = load_corpus(paths.corpus)
@@ -284,7 +293,7 @@ def calibrate_decoder(
         case_ids = [entry.case_id for entry in entries]
         probabilities = prior_probabilities(bank, len(entries))
     else:
-        case_ids, probabilities, _ = load_oof(paths)
+        case_ids, probabilities, _ = load_oof(paths, oof)
 
     index = {entry.case_id: entry for entry in entries}
     ordered = [index[case_id] for case_id in case_ids]
@@ -337,6 +346,7 @@ def evaluate(
     use_radfact_lite: bool = False,
     radfact_options: dict[str, Any] | None = None,
     output: Path | None = None,
+    oof: Path | None = None,
 ) -> dict[str, Any]:
     """Score out-of-fold reports, optionally with the organizer's real RadFact."""
     entries = load_corpus(paths.corpus)
@@ -347,7 +357,7 @@ def evaluate(
         case_ids = [entry.case_id for entry in entries]
         probabilities = prior_probabilities(bank, len(entries))
     else:
-        case_ids, probabilities, _ = load_oof(paths)
+        case_ids, probabilities, _ = load_oof(paths, oof)
 
     index = {entry.case_id: entry for entry in entries}
     predictions = {

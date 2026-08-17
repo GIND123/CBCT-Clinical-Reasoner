@@ -158,3 +158,97 @@ def fit_out_of_fold(
         "total_statements": float(labels.shape[1]),
         "feature_dimension": float(features.shape[1]),
     }
+
+
+@dataclass(frozen=True, slots=True)
+class ShallowModel:
+    """Deployable form: standardization stats plus one linear model per statement.
+
+    Only the statements that met the support floor are stored; every other
+    prototype falls back to its corpus prior, which is exactly what the
+    out-of-fold fit did, so training and inference agree by construction.
+    """
+
+    columns: np.ndarray
+    coefficients: np.ndarray
+    intercepts: np.ndarray
+    mean: np.ndarray
+    scale: np.ndarray
+    prior: np.ndarray
+
+    def predict(self, descriptor: np.ndarray) -> np.ndarray:
+        values = np.asarray(descriptor, dtype=np.float64).reshape(-1)
+        if values.shape != self.mean.shape:
+            raise ValueError(f"descriptor must have shape {self.mean.shape}, got {values.shape}")
+        standardized = (values - self.mean) / self.scale
+        logits = self.coefficients @ standardized + self.intercepts
+        probabilities = self.prior.astype(np.float32).copy()
+        probabilities[self.columns] = (1.0 / (1.0 + np.exp(-logits))).astype(np.float32)
+        return probabilities
+
+    def save(self, path: str | Path) -> Path:
+        output = Path(path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(
+            output,
+            columns=self.columns.astype(np.int32),
+            coefficients=self.coefficients.astype(np.float32),
+            intercepts=self.intercepts.astype(np.float32),
+            mean=self.mean.astype(np.float32),
+            scale=self.scale.astype(np.float32),
+            prior=self.prior.astype(np.float32),
+        )
+        return output
+
+    @classmethod
+    def load(cls, path: str | Path) -> ShallowModel:
+        with np.load(Path(path), allow_pickle=False) as archive:
+            return cls(
+                columns=archive["columns"].astype(np.int64),
+                coefficients=archive["coefficients"].astype(np.float64),
+                intercepts=archive["intercepts"].astype(np.float64),
+                mean=archive["mean"].astype(np.float64),
+                scale=archive["scale"].astype(np.float64),
+                prior=archive["prior"].astype(np.float32),
+            )
+
+
+def fit_full(
+    features: np.ndarray,
+    labels: np.ndarray,
+    prior: np.ndarray,
+    config: ShallowConfig | None = None,
+) -> ShallowModel:
+    """Refit on every case for deployment, using the settings validated out-of-fold."""
+    from sklearn.linear_model import LogisticRegression
+
+    settings = config or ShallowConfig()
+    mean = features.mean(axis=0).astype(np.float64)
+    scale = np.where(features.std(axis=0) > 1e-8, features.std(axis=0), 1.0).astype(np.float64)
+    standardized = (features.astype(np.float64) - mean) / scale
+
+    columns: list[int] = []
+    coefficients: list[np.ndarray] = []
+    intercepts: list[float] = []
+    for column in range(labels.shape[1]):
+        target = labels[:, column].astype(int)
+        if target.sum() < settings.min_support or target.sum() > len(target) - settings.min_support:
+            continue
+        model = LogisticRegression(
+            C=settings.inverse_regularization,
+            max_iter=settings.max_iterations,
+            class_weight="balanced",
+        )
+        model.fit(standardized, target)
+        columns.append(column)
+        coefficients.append(model.coef_[0])
+        intercepts.append(float(model.intercept_[0]))
+
+    return ShallowModel(
+        columns=np.asarray(columns, dtype=np.int64),
+        coefficients=np.vstack(coefficients) if coefficients else np.zeros((0, features.shape[1])),
+        intercepts=np.asarray(intercepts, dtype=np.float64),
+        mean=mean,
+        scale=scale,
+        prior=np.asarray(prior, dtype=np.float32),
+    )

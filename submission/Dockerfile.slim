@@ -24,7 +24,15 @@ COPY --chown=user:user pyproject.toml README.md LICENSE /opt/app/
 COPY --chown=user:user src /opt/app/src
 RUN python -m pip install --no-cache-dir --no-deps /opt/app
 
+# The bundle is baked in TWICE, deliberately.
+#
+# Grand Challenge mounts its own model volume at /opt/ml/model, which shadows
+# anything the image put there. The first submission failed exactly this way:
+# prototypes.json was invisible at run time, InferenceBundle.load raised, and the
+# container emitted its hardcoded fallback for all 50 cases. /opt/app/model is a
+# path the platform does not mount over, so it always survives.
 COPY --chown=user:user submission/model /opt/ml/model
+COPY --chown=user:user submission/model /opt/app/model
 COPY --chown=user:user submission/inference.py /opt/app/inference.py
 
 USER user

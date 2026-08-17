@@ -142,6 +142,24 @@ def main() -> int:
     print(f"wrote {destination} ({size / 1024:.1f} KB)")
     for line in provenance:
         print(f"  {line}")
+
+    # Paraphrase is a coin that pays only in the surrogate. Under RadFact,
+    # saying one thing twice cannot raise recall and can only halve precision if
+    # the thing is false - and in a blinded read, a report that repeats itself in
+    # two registers is the most obvious tell there is. Reported rather than
+    # removed, because the selection was scored with the duplicates in place.
+    from cbct_reasoner.decode.redundancy import redundant_groups
+
+    statements = [s.strip() for s in constant.split(". ") if s.strip()]
+    groups = redundant_groups(statements)
+    if groups:
+        print(f"\n{len(groups)} statement group(s) assert the same fact twice:")
+        for group in groups:
+            for position in group:
+                print(f"    {statements[position][:88]}")
+            print()
+    else:
+        print("\nno two statements in the report assert the same fact")
     return 0
 
 

@@ -39,10 +39,16 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--trajectory", default="artifacts/final_score_report_v2_trajectory.json")
     parser.add_argument(
+        "--statements",
+        type=int,
+        default=15,
+        help="pin the report length; 0 falls back to the --min-gain knee",
+    )
+    parser.add_argument(
         "--min-gain",
         type=float,
         default=0.004,
-        help="stop once a statement buys less Final Score than this",
+        help="when --statements is 0, stop once a statement buys less than this",
     )
     parser.add_argument("--out", default="artifacts/report_length_choice.json")
     parser.add_argument("--core-out", default="artifacts/final_score_core.json")
@@ -74,6 +80,16 @@ def main() -> int:
     best = trajectory[-1]
     if knee is None:
         knee = best
+    # The marginal gain decays smoothly rather than falling off a cliff, so a
+    # fixed threshold picks a length by accident. When a length is specified it
+    # wins, and the threshold's answer is still printed above for comparison.
+    if args.statements:
+        pinned = next((r for r in trajectory if r["statements"] == args.statements), None)
+        if pinned is None:
+            print(f"\nno prefix of {args.statements} statements in the trajectory")
+            return 1
+        print(f"\nthreshold knee would be {knee['statements']} statements")
+        knee = pinned
     print(
         f"\nknee at {knee['statements']} statements: FINAL {knee['final']:.4f}, "
         f"{knee['false_statements_per_case']:.1f} false statements per case, "

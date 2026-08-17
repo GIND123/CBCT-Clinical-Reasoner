@@ -27,6 +27,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from cbct_reasoner.data.corpus import load_corpus  # noqa: E402
 from cbct_reasoner.decode.calibrate import CalibrationScorer  # noqa: E402
+from cbct_reasoner.decode.redundancy import conflicts  # noqa: E402
 from cbct_reasoner.prototypes import PrototypeBank  # noqa: E402
 
 
@@ -36,6 +37,11 @@ def main() -> int:
     parser.add_argument("--max-sentences", type=int, default=26)
     parser.add_argument("--refine-rounds", type=int, default=3)
     parser.add_argument("--out", default="artifacts/final_score_report")
+    parser.add_argument(
+        "--allow-conflicts",
+        action="store_true",
+        help="permit a report that contradicts itself, if the metric prefers it",
+    )
     args = parser.parse_args()
 
     entries = load_corpus("work/corpus.jsonl")
@@ -53,6 +59,25 @@ def main() -> int:
         selection = sorted(chosen, key=lambda i: order.get(i, len(order)))
         return scorer.score_selection([selection] * len(entries))
 
+    # The Final Score reads statements one at a time and never reads the report,
+    # so an unconstrained greedy is glad to assert that the canal runs lingually
+    # and buccally, that the maxilla is both included and not, and that teeth
+    # listed as absent carry fillings - each earns credit on the cases whose
+    # reference agrees with it. That is guaranteed to be wrong about something,
+    # and a reader needs to know nothing about the case to see it.
+    blocked: dict[int, str] = {}
+
+    def admissible(index: int, chosen: set[int]) -> bool:
+        if args.allow_conflicts:
+            return True
+        text = bank[index].text
+        for existing in chosen:
+            reason = conflicts(text, bank[existing].text)
+            if reason is not None:
+                blocked[index] = reason
+                return False
+        return True
+
     # Every prefix is recorded, not just the end point. The Final Score keeps
     # rising as statements are added, but so does the number of statements that
     # are false for any given patient - and the double-blind review that decides
@@ -64,7 +89,7 @@ def main() -> int:
     for _step in range(args.max_sentences):
         options = []
         for index in candidates:
-            if index in chosen:
+            if index in chosen or not admissible(index, chosen):
                 continue
             options.append((evaluate(chosen | {index}).final, index))
         if not options:
@@ -95,6 +120,8 @@ def main() -> int:
     for round_index in range(args.refine_rounds):
         improved = False
         for index in candidates:
+            if index not in chosen and not admissible(index, chosen):
+                continue
             trial = (chosen - {index}) if index in chosen else (chosen | {index})
             if not trial:
                 continue
@@ -140,6 +167,10 @@ def main() -> int:
         + "\n",
         encoding="utf-8",
     )
+    if blocked:
+        print(f"\n{len(blocked)} statements refused for contradicting the selection, e.g.")
+        for index, reason in list(blocked.items())[:5]:
+            print(f"    {reason:<46} {bank[index].text[:50]}")
     print(f"\n{text}")
     return 0
 

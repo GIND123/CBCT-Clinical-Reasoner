@@ -33,6 +33,11 @@ RUN python -m pip install --no-cache-dir --no-deps /opt/app
 # path the platform does not mount over, so it always survives.
 COPY --chown=user:user submission/model /opt/ml/model
 COPY --chown=user:user submission/model /opt/app/model
+
+# report_model.py is the report itself, as source rather than data. Nothing
+# mounts over an import, so the geometry-gated report survives even the failure
+# mode above - the bundle beside it is an optional upgrade, not a requirement.
+COPY --chown=user:user submission/report_model.py /opt/app/report_model.py
 COPY --chown=user:user submission/inference.py /opt/app/inference.py
 
 USER user

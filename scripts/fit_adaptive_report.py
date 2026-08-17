@@ -42,6 +42,11 @@ def main() -> int:
     parser.add_argument("--core", default="artifacts/final_score_report.json")
     parser.add_argument("--gate-candidates", type=int, default=40)
     parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument(
+        "--allow-additions",
+        action="store_true",
+        help="let gating add statements beyond the chosen core, lengthening the report",
+    )
     args = parser.parse_args()
 
     entries = load_corpus("work/corpus.jsonl")
@@ -78,15 +83,24 @@ def main() -> int:
     core = set(json.loads(Path(args.core).read_text(encoding="utf-8"))["indices"])
     print(f"starting core: {len(core)} statements")
 
-    # Every statement already in the core is a gate candidate, whatever its
-    # prevalence: the point of gating is to stop asserting a core statement on
-    # the cases where it is false, and the core was chosen by the Final Score,
-    # not by how often the statement is true. Additional candidates are drawn by
-    # prevalence, since a statement too rare to gate cannot be fitted anyway.
+    # Gating converts core statements into conditional ones. It does not add
+    # statements, and that restriction is the whole point: the length was chosen
+    # deliberately, from the curve, because a report three times the length of a
+    # real one loses a blinded read no matter what it scores. Allowed to add,
+    # gating took a 15-statement core to a mean of 20.9 sentences, because the
+    # Final Score rewards that and knows nothing about how the report reads.
+    #
+    # Restricting to the core also keeps the report consistent for free: the core
+    # is already free of contradictions and repetition, and every per-case report
+    # is a subset of it.
     ranked = sorted(bank, key=lambda p: -p.prevalence)
-    extra = [p.index for p in ranked if 0.03 <= p.prevalence <= 0.90 and p.index not in core][
-        : args.gate_candidates
-    ]
+    extra = (
+        [p.index for p in ranked if 0.03 <= p.prevalence <= 0.90 and p.index not in core][
+            : args.gate_candidates
+        ]
+        if args.allow_additions
+        else []
+    )
     candidates = sorted(core) + extra
     gate_probabilities = out_of_fold_gate_probabilities(features, labels, candidates, folds)
     column_of = {index: position for position, index in enumerate(candidates)}

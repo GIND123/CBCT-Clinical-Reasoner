@@ -27,7 +27,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from cbct_reasoner.data.corpus import load_corpus  # noqa: E402
 from cbct_reasoner.decode.calibrate import CalibrationScorer  # noqa: E402
-from cbct_reasoner.decode.redundancy import conflicts  # noqa: E402
+from cbct_reasoner.decode.redundancy import assertion_key, conflicts  # noqa: E402
 from cbct_reasoner.prototypes import PrototypeBank  # noqa: E402
 
 
@@ -71,6 +71,16 @@ def main() -> int:
         if args.allow_conflicts:
             return True
         text = bank[index].text
+        # Saying the same thing again cannot raise recall - the reference phrase
+        # it entails is already entailed - so the only thing a paraphrase buys is
+        # another chance to match some reference's exact wording. Seven ways of
+        # saying the mandibular canal runs lingually is what that looks like.
+        key = assertion_key(text)
+        if key is not None:
+            for existing in chosen:
+                if assertion_key(bank[existing].text) == key:
+                    blocked[index] = "repeats an existing statement"
+                    return False
         for existing in chosen:
             reason = conflicts(text, bank[existing].text)
             if reason is not None:

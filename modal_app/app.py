@@ -353,7 +353,10 @@ def main(
     """Run one stage or the whole pipeline.
 
     ``--stage all`` runs prepare -> prototypes -> splits -> train (parallel folds)
-    -> collect-oof -> calibrate -> evaluate -> package.
+    -> collect-oof -> calibrate -> evaluate -> ablation -> figures -> package.
+
+    ``--stage post`` runs everything after training, for the common case where the
+    voxel cache and label space were built locally and uploaded.
     """
     selected = [int(value) for value in folds.split(",") if value.strip()] or None
     results: dict[str, object] = {}
@@ -378,6 +381,10 @@ def main(
         show("train_narrative", train_narrative.remote(config_name))
         return
 
+    # "post" resumes after training when the cache, corpus, prototypes and folds
+    # were prepared locally and only the GPU-side work runs on Modal.
+    post = stage == "post"
+
     if stage in {"all", "prepare"}:
         show("prepare", prepare.remote(config_name, force))
     if stage in {"all", "prototypes"}:
@@ -389,15 +396,15 @@ def main(
         indices = selected or list(range(len(plan["folds"])))  # type: ignore[index]
         show("train", list(train_fold.map(indices, kwargs={"config_name": config_name})))
         show("collect_oof", collect_oof.remote(config_name))
-    if stage in {"all", "calibrate"}:
+    if post or stage in {"all", "calibrate"}:
         show("calibrate", calibrate.remote(config_name, prior_only))
-    if stage in {"all", "evaluate"}:
+    if post or stage in {"all", "evaluate"}:
         show("evaluate", evaluate.remote(config_name, prior_only))
-    if stage in {"all", "ablation"}:
+    if post or stage in {"all", "ablation"}:
         show("ablation", ablation.remote(config_name))
-    if stage in {"all", "figures"}:
+    if post or stage in {"all", "figures"}:
         show("figures", figures.remote(config_name))
-    if stage in {"all", "package"}:
+    if post or stage in {"all", "package"}:
         show("package", package.remote(config_name, not prior_only))
     if push:
         show("push", push_hub.remote())

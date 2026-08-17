@@ -52,7 +52,7 @@ def _style() -> dict[str, Any]:
         "axes.labelcolor": INK_SECONDARY,
         "axes.titlecolor": INK,
         "axes.titlesize": 11,
-        "axes.titleweight": "600",
+        "axes.titleweight": "bold",
         "axes.labelsize": 9,
         "axes.linewidth": 0.8,
         "axes.grid": True,

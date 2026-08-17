@@ -4,12 +4,23 @@
 .ruff_cache
 .venv
 __pycache__
+*.pyc
+.env
+
+# Working data never belongs in the algorithm image.
+work
 artifacts
-data/raw
+data
 docs
 tests
-*.pyc
+modal_app
+scripts
+submission/test
+submission/*.tar.gz
+
+# Raw volumes; the packaged bundle under submission/model is copied explicitly.
 *.nii
 *.nii.gz
 *.mha
 *.mhd
+*.nrrd

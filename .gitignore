@@ -9,12 +9,34 @@ htmlcov/
 venv/
 dist/
 build/
+
+# Secrets
+.env
+!.env.example
+
+# Derived clinical data and trained artifacts: never committed.
+work/
 artifacts/
 predictions/
-data/raw/
+data/raw/*
+!data/raw/README.md
+
+# Volumes in any location
 *.nii
 *.nii.gz
 *.mha
 *.mhd
-model/*.npz
-!model/README.md
+*.nrrd
+*.npy
+*.npz
+*.pt
+*.pth
+*.safetensors
+
+# Packaged submission
+submission/model/*
+!submission/model/.gitkeep
+!submission/model/README.md
+submission/test/input/
+submission/test/output/
+submission/*.tar.gz

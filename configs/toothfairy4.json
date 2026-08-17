@@ -1,0 +1,58 @@
+{
+  "name": "toothfairy4-prototype-v1",
+  "seed": 2026,
+  "folds": 5,
+  "preprocess": {
+    "spacing_mm": [0.6, 0.6, 0.6],
+    "shape_zyx": [128, 224, 224],
+    "clip_percentiles": [0.5, 99.5],
+    "orientation": "LPS",
+    "dtype": "float16"
+  },
+  "prototypes": {
+    "max_prototypes": 192,
+    "min_support": 6,
+    "embedder": "tfidf",
+    "linkage_threshold": 0.62,
+    "max_sentence_words": 60
+  },
+  "encoder": {
+    "backbone": "slice2d",
+    "timm_model": "convnext_tiny",
+    "width": 32,
+    "dropout": 0.2,
+    "epochs": 30,
+    "batch_size": 2,
+    "accumulate": 8,
+    "learning_rate": 0.0002,
+    "weight_decay": 0.02,
+    "warmup_ratio": 0.1,
+    "label_smoothing": 0.02,
+    "focal_gamma_negative": 2.0,
+    "focal_gamma_positive": 0.0,
+    "ema_decay": 0.999,
+    "amp": true,
+    "num_workers": 4,
+    "seed": 2026
+  },
+  "llm": {
+    "base_model": "Qwen/Qwen2.5-1.5B-Instruct",
+    "enabled": false,
+    "lora_rank": 32,
+    "lora_alpha": 64,
+    "epochs": 3,
+    "batch_size": 4,
+    "learning_rate": 0.0001,
+    "max_length": 1536,
+    "max_new_tokens": 512
+  },
+  "decode": {
+    "strategy": "prototype",
+    "clinical_weight": 0.8,
+    "captioning_weight": 0.2,
+    "calibration_rounds": 6,
+    "min_sentences": 8,
+    "max_sentences": 26,
+    "mbr_candidates": 24
+  }
+}

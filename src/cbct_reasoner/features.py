@@ -79,8 +79,7 @@ def extract_features(volume: Volume) -> np.ndarray:
 
 def _bounded_sample(array: np.ndarray, maximum_axis: int = 96) -> np.ndarray:
     indices = [
-        np.linspace(0, size - 1, min(size, maximum_axis), dtype=np.int64)
-        for size in array.shape
+        np.linspace(0, size - 1, min(size, maximum_axis), dtype=np.int64) for size in array.shape
     ]
     return array[np.ix_(*indices)]
 

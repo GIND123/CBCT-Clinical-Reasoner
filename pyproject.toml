@@ -25,6 +25,7 @@ train = [
   "timm>=1.0",
   "scikit-learn>=1.4",
   "tqdm>=4.66",
+  "matplotlib>=3.8",
 ]
 llm = [
   "transformers>=4.44",

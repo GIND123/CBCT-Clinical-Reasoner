@@ -117,7 +117,7 @@ def preprocess_volume(
 
     foreground = array > 0.55
     foreground_fraction = float(foreground.mean())
-    array = _center_crop_or_pad(array, config.shape_zyx, foreground)
+    array = _center_crop_or_pad(array, config.shape_zyx, _dentition_mask(array, foreground))
 
     meta = VolumeMeta(
         case_id=case_id or location.stem,
@@ -161,10 +161,25 @@ def _resample_to_spacing(image, spacing_mm: tuple[float, float, float], sitk) ->
     return resampler.Execute(image)
 
 
+def _dentition_mask(array: np.ndarray, foreground: np.ndarray) -> np.ndarray:
+    """Isolate enamel and restorations, the densest structures in a jaw CBCT.
+
+    Centring on all bone puts the window at the skull's centre of mass on a
+    large field of view, which drifts away from the dental arch the reports
+    describe. Enamel is a far tighter landmark, and every case in this release
+    has some. Falls back to bone when a scan is fully edentulous.
+    """
+    if not foreground.any():
+        return foreground
+    threshold = float(np.quantile(array[foreground], 0.90))
+    dense = array >= max(threshold, 0.6)
+    return dense if dense.sum() >= 512 else foreground
+
+
 def _center_crop_or_pad(
     array: np.ndarray, shape: tuple[int, int, int], foreground: np.ndarray
 ) -> np.ndarray:
-    """Crop around the dense-bone centroid, padding with air where the FOV is small."""
+    """Crop around the dentition centroid, padding with air where the FOV is small."""
     centre = _foreground_centroid(foreground, array.shape)
     output = np.zeros(shape, dtype=array.dtype)
     slices_src: list[slice] = []

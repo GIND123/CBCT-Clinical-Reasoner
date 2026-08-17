@@ -292,6 +292,7 @@ def calibrate(
     rounds: int = 4,
     global_grid: Sequence[float] | None = None,
     local_grid: Sequence[float] | None = None,
+    refine_top: int | None = None,
     verbose: bool = True,
 ) -> CalibrationResult:
     """Fit per-prototype thresholds by coordinate ascent on the ranking objective."""
@@ -305,9 +306,13 @@ def calibrate(
     global_grid = list(global_grid or np.round(np.arange(0.05, 0.96, 0.05), 3))
     local_grid = list(local_grid or (0.02, 0.08, 0.15, 0.25, 0.35, 0.45, 0.55, 0.7, 0.85, 0.97))
 
+    # One decoder is reused across the whole search; only its threshold vector
+    # changes, and the contradiction index is expensive to rebuild.
+    decoder = ReportDecoder(bank, np.zeros(len(bank), dtype=np.float32), settings=settings)
+
     def evaluate(thresholds: np.ndarray) -> ObjectiveBreakdown:
-        decoder = ReportDecoder(bank, thresholds, settings=settings)
-        return scorer.score_selection([decoder.select(row) for row in probabilities])
+        decoder.thresholds = np.asarray(thresholds, dtype=np.float32)
+        return scorer.score_selection(decoder.select_many(probabilities))
 
     # Stage 1: one shared threshold, to land in the right region cheaply.
     best_global, best_score, baseline = 0.5, -1.0, None
@@ -330,7 +335,12 @@ def calibrate(
 
     # Stage 2: per-prototype refinement, commonest statements first because they
     # move the objective most and set the precision level later ones compete with.
+    # Rare statements are left at the global threshold: with a thousand-statement
+    # bank, refining a prototype seen in two cases costs an objective evaluation
+    # and cannot move a corpus-level score.
     order = sorted(range(len(bank)), key=lambda index: -bank[index].prevalence)
+    if refine_top is not None:
+        order = order[:refine_top]
     for round_index in range(rounds):
         improved = 0
         for index in order:

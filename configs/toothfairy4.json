@@ -3,18 +3,31 @@
   "seed": 2026,
   "folds": 5,
   "preprocess": {
-    "spacing_mm": [0.6, 0.6, 0.6],
-    "shape_zyx": [128, 224, 224],
-    "clip_percentiles": [0.5, 99.5],
+    "spacing_mm": [
+      0.5,
+      0.5,
+      0.5
+    ],
+    "shape_zyx": [
+      112,
+      192,
+      192
+    ],
+    "clip_percentiles": [
+      0.5,
+      99.5
+    ],
     "orientation": "LPS",
     "dtype": "float16"
   },
   "prototypes": {
-    "max_prototypes": 192,
-    "min_support": 6,
+    "max_prototypes": 1024,
+    "min_support": 2,
     "embedder": "tfidf",
     "linkage_threshold": 0.62,
-    "max_sentence_words": 60
+    "max_sentence_words": 60,
+    "assign_threshold": 0.45,
+    "tooth_aware": true
   },
   "encoder": {
     "backbone": "slice2d",
@@ -51,8 +64,9 @@
     "clinical_weight": 0.8,
     "captioning_weight": 0.2,
     "calibration_rounds": 6,
-    "min_sentences": 8,
-    "max_sentences": 26,
-    "mbr_candidates": 24
+    "min_sentences": 4,
+    "max_sentences": 16,
+    "mbr_candidates": 24,
+    "refine_top": 250
   }
 }

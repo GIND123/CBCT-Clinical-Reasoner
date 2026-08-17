@@ -82,6 +82,9 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--radfact-base-url")
     evaluate.add_argument("--output", type=Path)
 
+    commands.add_parser("ablation", help="score the prior against the trained model")
+    commands.add_parser("plots", help="render every diagnostic figure")
+
     package = commands.add_parser("package", help="assemble the submission bundle")
     package.add_argument("--no-checkpoints", action="store_true", help="prior-only bundle")
 
@@ -227,6 +230,12 @@ def _dispatch(args: argparse.Namespace) -> int:
             )
         )
         return 0
+    if command == "ablation":
+        _emit(pipeline.ablation(paths, config))
+        return 0
+    if command == "plots":
+        _emit(pipeline.figures(paths, config))
+        return 0
     if command == "package":
         _emit(pipeline.package(paths, config, include_checkpoints=not args.no_checkpoints))
         return 0
@@ -259,6 +268,8 @@ def _run_all(paths: Paths, config: ExperimentConfig, args: argparse.Namespace) -
         summary["train"] = pipeline.train(paths, config, device=args.device)
     summary["calibrate"] = pipeline.calibrate_decoder(paths, config, prior_only=args.skip_train)
     summary["evaluate"] = pipeline.evaluate(paths, config, prior_only=args.skip_train)
+    summary["ablation"] = pipeline.ablation(paths, config)
+    summary["figures"] = pipeline.figures(paths, config)
     summary["package"] = pipeline.package(paths, config, include_checkpoints=not args.skip_train)
 
     (paths.artifacts / "run_summary.json").write_text(

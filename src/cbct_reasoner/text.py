@@ -56,8 +56,20 @@ NON_VERIFIABLE_RE = re.compile(
 )
 
 #: Conjunctions that join two independently verifiable findings in one sentence.
+#: "with" is deliberately excluded: it almost always introduces a dependent
+#: modifier ("...the mandibular canals, with a predominantly lingual course"),
+#: and splitting there strands a fragment that no reference can entail.
 _SPLIT_CONJUNCTIONS = re.compile(
-    r",\s+(?:and|while|whereas|with)\s+(?=(?:the|a|an|there|no|both|bilateral|left|right)\b)",
+    r",\s+(?:and|while|whereas)\s+(?=(?:the|a|an|there|no|both|bilateral|left|right)\b)",
+    re.IGNORECASE,
+)
+
+#: A clause needs a finite verb to stand alone as a checkable finding.
+_CLAUSE_VERB_RE = re.compile(
+    r"\b(?:is|are|was|were|has|have|had|shows?|showed|appears?|presents?|"
+    r"demonstrates?|reveals?|extends?|involves?|measures?|exhibits?|"
+    r"noted|observed|identified|seen|visible|detected|documented|evident|"
+    r"absent|present|confirmed)\b",
     re.IGNORECASE,
 )
 
@@ -111,11 +123,13 @@ def split_phrases(text: str, *, split_conjunctions: bool = True) -> list[str]:
     """
     phrases: list[str] = []
     for sentence in split_sentences(text):
-        candidates = (
-            [part.strip() for part in _SPLIT_CONJUNCTIONS.split(sentence)]
-            if split_conjunctions
-            else [sentence]
-        )
+        candidates = [sentence]
+        if split_conjunctions:
+            parts = [part.strip() for part in _SPLIT_CONJUNCTIONS.split(sentence)]
+            # Only accept the split when every piece can stand on its own; a
+            # stranded modifier is unverifiable in both scoring directions.
+            if len(parts) > 1 and all(_CLAUSE_VERB_RE.search(part) for part in parts):
+                candidates = parts
         for candidate in candidates:
             cleaned = candidate.strip(" ;,")
             if len(cleaned.split()) >= 2:
@@ -135,15 +149,20 @@ def ensure_terminal_period(text: str) -> str:
     return stripped if stripped[-1] in ".!?" else stripped + "."
 
 
-def canonicalize(phrase: str) -> str:
+def canonicalize(phrase: str, *, mask_numbers: bool = True) -> str:
     """Aggressive lowercase form used to deduplicate near-identical sentences.
 
-    Numbers become ``#`` so that "tooth 36" and "tooth 46" collapse into one
-    prototype whose slot is filled later by the tooth-level head.
+    With ``mask_numbers`` every number becomes ``#``, which groups phrasings
+    ("tooth 36 is impacted" and "tooth 46 is impacted" become one form). Set it
+    False to keep statements about different teeth apart - a distinction that
+    matters because RadFact scores a wrong tooth number as not-entailed.
     """
     lowered = normalize_text(phrase).casefold()
-    lowered = re.sub(r"\d+(?:\.\d+)?", "#", lowered)
-    lowered = re.sub(r"[^a-z#\s]", " ", lowered)
+    if mask_numbers:
+        lowered = re.sub(r"\d+(?:\.\d+)?", "#", lowered)
+    else:
+        lowered = re.sub(r"(?<!\d)\d{1,3}(?:\.\d+)?", lambda m: f" n{m.group()} ", lowered)
+    lowered = re.sub(r"[^a-z0-9#\s]", " ", lowered)
     return _WHITESPACE_RE.sub(" ", lowered).strip()
 
 

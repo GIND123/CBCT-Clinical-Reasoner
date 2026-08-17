@@ -22,7 +22,7 @@ the training-time TF-IDF model, so the deployed bundle needs only numpy.
 from __future__ import annotations
 
 import json
-import math
+import random
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -33,10 +33,11 @@ import numpy as np
 from cbct_reasoner.config import PrototypeConfig
 from cbct_reasoner.data.corpus import CorpusEntry
 from cbct_reasoner.metrics.official import meteor_score_tokenized, tokenize
+from cbct_reasoner.metrics.radfact import phrase_entailment_score
 from cbct_reasoner.ontology import SECTION_INDEX, extract_mentions, section_of
 from cbct_reasoner.text import canonicalize, is_verifiable, split_phrases
 
-BANK_VERSION = 2
+BANK_VERSION = 3
 
 _STOPWORDS = frozenset(
     """
@@ -45,8 +46,11 @@ _STOPWORDS = frozenset(
     """.split()
 )
 
-#: Minimum token-overlap similarity for a phrase to be assigned to a prototype.
-ASSIGN_THRESHOLD = 0.55
+#: Default token-overlap similarity for assignment; overridden by PrototypeConfig.
+ASSIGN_THRESHOLD = 0.45
+
+#: Cluster members sampled when picking a representative (quadratic in members).
+_REPRESENTATIVE_SAMPLE = 48
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +106,8 @@ class PrototypeBank:
 
     prototypes: tuple[Prototype, ...]
     num_cases: int
+    assign_threshold: float = ASSIGN_THRESHOLD
+    tooth_aware: bool = False
 
     def __len__(self) -> int:
         return len(self.prototypes)
@@ -130,6 +136,8 @@ class PrototypeBank:
         payload = {
             "bank_version": BANK_VERSION,
             "num_cases": self.num_cases,
+            "assign_threshold": self.assign_threshold,
+            "tooth_aware": self.tooth_aware,
             "prototypes": [prototype.to_dict() for prototype in self.prototypes],
         }
         output.write_text(
@@ -153,12 +161,14 @@ class PrototypeBank:
         return cls(
             prototypes=tuple(Prototype.from_dict(item) for item in payload["prototypes"]),
             num_cases=int(payload["num_cases"]),
+            assign_threshold=float(payload.get("assign_threshold", ASSIGN_THRESHOLD)),
+            tooth_aware=bool(payload.get("tooth_aware", False)),
         )
 
-    def assign(self, phrase: str, *, threshold: float = ASSIGN_THRESHOLD) -> int | None:
+    def assign(self, phrase: str, *, threshold: float | None = None) -> int | None:
         """Map an arbitrary phrase onto its closest prototype, or ``None``."""
-        best_index, best_score = None, threshold
-        signature = _phrase_tokens(phrase)
+        best_index, best_score = None, self.assign_threshold if threshold is None else threshold
+        signature = _phrase_tokens(phrase, tooth_aware=self.tooth_aware)
         concepts = frozenset(mention.concept for mention in extract_mentions(phrase))
         if not signature:
             return None
@@ -168,9 +178,7 @@ class PrototypeBank:
                 best_index, best_score = prototype.index, score
         return best_index
 
-    def label_vector(
-        self, phrases: Iterable[str], *, threshold: float = ASSIGN_THRESHOLD
-    ) -> np.ndarray:
+    def label_vector(self, phrases: Iterable[str], *, threshold: float | None = None) -> np.ndarray:
         vector = np.zeros(len(self.prototypes), dtype=np.float32)
         for phrase in phrases:
             index = self.assign(phrase, threshold=threshold)
@@ -179,10 +187,10 @@ class PrototypeBank:
         return vector
 
 
-def _phrase_tokens(phrase: str) -> frozenset[str]:
+def _phrase_tokens(phrase: str, *, tooth_aware: bool = False) -> frozenset[str]:
     return frozenset(
         token
-        for token in tokenize(canonicalize(phrase))
+        for token in tokenize(canonicalize(phrase, mask_numbers=not tooth_aware))
         if token.isalnum() and token not in _STOPWORDS
     )
 
@@ -210,7 +218,7 @@ def _similarity(tokens: frozenset[str], concepts: frozenset[str], prototype: Pro
 
 
 def collect_phrases(
-    entries: Iterable[CorpusEntry], *, max_words: int
+    entries: Iterable[CorpusEntry], *, max_words: int, tooth_aware: bool = False
 ) -> tuple[list[str], dict[str, set[str]]]:
     """Gather every verifiable phrase and the cases each canonical form occurs in."""
     representatives: dict[str, Counter[str]] = defaultdict(Counter)
@@ -223,7 +231,7 @@ def collect_phrases(
                     continue
                 if not 2 <= len(phrase.split()) <= max_words:
                     continue
-                canonical = canonicalize(phrase)
+                canonical = canonicalize(phrase, mask_numbers=not tooth_aware)
                 if not canonical:
                     continue
                 representatives[canonical][phrase] += 1
@@ -241,11 +249,15 @@ def build_bank(entries: Sequence[CorpusEntry], config: PrototypeConfig) -> Proto
     if not entries:
         raise ValueError("Cannot build a prototype bank from an empty corpus")
 
-    phrases, cases_by_canonical = collect_phrases(entries, max_words=config.max_sentence_words)
+    phrases, cases_by_canonical = collect_phrases(
+        entries, max_words=config.max_sentence_words, tooth_aware=config.tooth_aware
+    )
     if not phrases:
         raise ValueError("No verifiable phrases were extracted from the corpus")
 
-    canonical_of = {phrase: canonicalize(phrase) for phrase in phrases}
+    canonical_of = {
+        phrase: canonicalize(phrase, mask_numbers=not config.tooth_aware) for phrase in phrases
+    }
     labels = _cluster(phrases, config)
 
     clusters: dict[int, list[str]] = defaultdict(list)
@@ -284,16 +296,21 @@ def build_bank(entries: Sequence[CorpusEntry], config: PrototypeConfig) -> Proto
             Prototype(
                 index=index,
                 text=text,
-                canonical=canonicalize(text),
+                canonical=canonicalize(text, mask_numbers=not config.tooth_aware),
                 section=section_of(text),
                 concepts=concepts,
-                tokens=_phrase_tokens(text),
+                tokens=_phrase_tokens(text, tooth_aware=config.tooth_aware),
                 support=int(support),
                 prevalence=float(support) / len(entries),
                 variants=tuple(sorted(set(members))[:12]),
             )
         )
-    return PrototypeBank(prototypes=tuple(prototypes), num_cases=len(entries))
+    return PrototypeBank(
+        prototypes=tuple(prototypes),
+        num_cases=len(entries),
+        assign_threshold=config.assign_threshold,
+        tooth_aware=config.tooth_aware,
+    )
 
 
 def _cluster(phrases: Sequence[str], config: PrototypeConfig) -> np.ndarray:
@@ -313,8 +330,8 @@ def _cluster(phrases: Sequence[str], config: PrototypeConfig) -> np.ndarray:
         ngram_range=(1, 2),
         sublinear_tf=True,
         min_df=1,
-        preprocessor=canonicalize,
-        token_pattern=r"[a-z#]+",
+        preprocessor=lambda value: canonicalize(value, mask_numbers=not config.tooth_aware),
+        token_pattern=r"[a-z0-9#]+",
     )
     matrix = vectorizer.fit_transform(phrases)
     if matrix.shape[1] == 0:
@@ -334,25 +351,39 @@ def _cluster(phrases: Sequence[str], config: PrototypeConfig) -> np.ndarray:
 
 
 def _representative(members: Sequence[str]) -> str:
-    """Pick the cluster member with the highest mean METEOR against the others.
+    """Choose the cluster member most likely to be *scored correct*.
 
-    This is the surface form the grader will reward most often when the finding
-    is predicted correctly - a metric-aware choice, not simply the most frequent
-    or the shortest string.
+    Ranked on the challenge's own weighting: 0.8 x expected entailment against
+    the other members, 0.2 x expected METEOR. Entailment dominates precisely
+    because it is what punishes over-specific phrasing - a sentence naming eight
+    particular teeth is not entailed by a reference naming two different ones,
+    so a generic phrasing wins even though it scores slightly less overlap.
     """
     unique = sorted(set(members))
     if len(unique) == 1:
         return unique[0]
-    tokenized = [tokenize(member) for member in unique]
-    best_index, best_score = 0, -1.0
-    for index, candidate in enumerate(tokenized):
-        others = [other for position, other in enumerate(tokenized) if position != index]
-        score = sum(meteor_score_tokenized(candidate, other) for other in others) / len(others)
-        if score > best_score or (
-            math.isclose(score, best_score) and len(candidate) > len(tokenized[best_index])
-        ):
-            best_index, best_score = index, score
-    return unique[best_index]
+
+    # Large clusters are sampled; the estimate is stable well before the tail.
+    population = (
+        unique
+        if len(unique) <= _REPRESENTATIVE_SAMPLE
+        else sorted(random.Random(2026).sample(unique, _REPRESENTATIVE_SAMPLE))
+    )
+    tokenized = {member: tokenize(member) for member in population}
+
+    best_member, best_score = population[0], -1.0
+    for candidate in population:
+        others = [member for member in population if member != candidate]
+        entailment = sum(phrase_entailment_score(candidate, member) for member in others) / len(
+            others
+        )
+        meteor = sum(
+            meteor_score_tokenized(tokenized[candidate], tokenized[member]) for member in others
+        ) / len(others)
+        score = 0.8 * entailment + 0.2 * meteor
+        if score > best_score:
+            best_member, best_score = candidate, score
+    return best_member
 
 
 def build_labels(

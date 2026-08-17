@@ -266,7 +266,17 @@ def push_all(
             card, repo_id=config.model_repo, repo_type="model", path_in_repo="README.md"
         )
 
-    for name in ("calibration.json", "evaluation.json", "train_history.json"):
+    plots_dir = paths.artifacts / "plots"
+    if plots_dir.is_dir():
+        urls["plots"] = client.upload_folder(
+            plots_dir,
+            repo_id=config.model_repo,
+            repo_type="model",
+            path_in_repo="plots",
+            message="Update diagnostic figures",
+        )
+
+    for name in ("calibration.json", "evaluation.json", "train_history.json", "ablation.json"):
         candidate = paths.artifacts / name
         if candidate.is_file():
             urls["runs"] = client.upload_file(

@@ -420,6 +420,84 @@ def download_bundle() -> bytes:
 
 
 # ---------------------------------------------------------------------------
+# Constant-report search for the public leaderboard
+# ---------------------------------------------------------------------------
+
+
+@app.function(image=image, volumes=VOLUMES, timeout=4 * 60 * 60, cpu=2.0, memory=8192)
+def search_constant(task: dict) -> dict:
+    """Fit a constant report on all centres but one, then score the held-out centre.
+
+    One task per (configuration, held-out centre). The board is ranked on mean
+    position over BLEU-4 and METEOR, and a real submission showed BLEU transfers
+    to an unseen centre at 0.66x while METEOR transfers at 1.015x, so the search
+    is validated the same way it will be judged: on a centre it never saw.
+    """
+    from cbct_reasoner.data.corpus import load_corpus
+    from cbct_reasoner.decode.constant import (
+        CorpusScorer,
+        SearchConfig,
+        render_tokens,
+        search,
+    )
+    from cbct_reasoner.prototypes import PrototypeBank
+
+    paths, _ = _context(task.get("config_name"))
+    entries = load_corpus(paths.corpus)
+    bank = PrototypeBank.load(paths.prototypes)
+
+    config = SearchConfig(
+        bleu_weight=task["bleu_weight"],
+        aggregate=task["aggregate"],
+        min_prevalence=task["min_prevalence"],
+        max_sentences=task.get("max_sentences", 40),
+    )
+    held = task.get("held_out")
+    centres = sorted({e.center for e in entries})
+    train_centres = [c for c in centres if c != held]
+    groups = [[e.reference for e in entries if e.center == c] for c in train_centres]
+
+    chosen, text = search(bank, groups, config)
+    _, tokens = render_tokens(bank, chosen)
+
+    result = {
+        **{k: task[k] for k in ("bleu_weight", "aggregate", "min_prevalence")},
+        "held_out": held,
+        "sentences": len(chosen),
+        "tokens": len(tokens),
+        "indices": sorted(chosen),
+        "report": text,
+    }
+    if held is not None:
+        bleu, meteor = CorpusScorer([e.reference for e in entries if e.center == held]).score(
+            tokens
+        )
+        result["held_out_bleu_4"] = bleu
+        result["held_out_meteor"] = meteor
+    # Per-centre in-sample numbers make the spread visible; the hidden test set
+    # is one centre, not an average of four.
+    result["per_centre"] = {
+        c: CorpusScorer([e.reference for e in entries if e.center == c]).score(tokens)
+        for c in centres
+    }
+    print(result.get("held_out_bleu_4"), result.get("held_out_meteor"), flush=True)
+    return result
+
+
+@app.function(image=image, volumes=VOLUMES, timeout=3600)
+def store_report(payload: dict) -> dict:
+    """Persist a fitted constant report to the volume."""
+    import json
+
+    paths, _ = _context(None)
+    destination = paths.artifacts / payload.get("name", "constant_report.json")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    volume.commit()
+    return {"stored": str(destination)}
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 

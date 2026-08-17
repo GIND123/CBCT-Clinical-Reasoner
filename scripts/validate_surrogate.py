@@ -34,10 +34,18 @@ def candidates() -> dict[str, str]:
     captioning = Path("artifacts/final_report.txt")
     if captioning.is_file():
         out["captioning_optimised"] = captioning.read_text(encoding="utf-8").strip()
-    final_score = Path("artifacts/final_score_report.json")
-    if final_score.is_file():
-        payload = json.loads(final_score.read_text(encoding="utf-8"))
-        out["final_score_optimised"] = " ".join(payload["report"].split()).strip()
+    # The reports selected against the ranking formula itself. "knee" is the one
+    # actually shipped: the length where the Final Score stops buying much per
+    # statement, rather than the length where the optimizer's cap happened to be.
+    for name, path in (
+        ("final_score_optimised", "artifacts/final_score_report.json"),
+        ("knee", "artifacts/final_score_core.json"),
+        ("knee_greedy_end", "artifacts/final_score_knee.json"),
+    ):
+        candidate = Path(path)
+        if candidate.is_file():
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+            out[name] = " ".join(payload["report"].split()).strip()
     return out
 
 

@@ -73,6 +73,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     calibrate.add_argument("--rounds", type=int)
     calibrate.add_argument("--oof", type=Path, help="alternative out-of-fold probability file")
+    calibrate.add_argument(
+        "--init-decoder", type=Path, help="seed the threshold ascent with these thresholds"
+    )
 
     evaluate = commands.add_parser("evaluate", help="score predictions")
     evaluate.add_argument("--pairs", type=Path, help="score a prediction/reference JSONL instead")

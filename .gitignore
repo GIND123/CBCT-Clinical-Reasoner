@@ -42,6 +42,6 @@ data/raw/*
 submission/model/*
 !submission/model/.gitkeep
 !submission/model/README.md
-submission/test/input/
-submission/test/output/
+# Stress-test scratch: input_a, input_b, input_corrupt, out_*, log_*, ...
+submission/test/
 submission/*.tar.gz

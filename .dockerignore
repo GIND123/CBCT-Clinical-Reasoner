@@ -7,6 +7,11 @@ __pycache__
 *.pyc
 .env
 
+# Dataset archives would otherwise be sent as build context (tens of GB).
+*.zip
+*.tar
+*.tar.gz
+
 # Working data never belongs in the algorithm image.
 work
 artifacts

@@ -80,9 +80,10 @@ def main() -> int:
         f"{'w':>4} {'agg':>5} {'prev':>5} {'est BLEU':>9} {'est METEOR':>11} "
         f"{'ranks':>7} {'mean':>5} {'sent':>5} {'better?':>8}"
     )
-    print(f"estimator: BLEU = worst fold, METEOR = fold mean (calibrated on the real result)")
+    print("estimator: BLEU = worst fold, METEOR = fold mean (calibrated on the real result)")
     print(
-        f"our current entry: BLEU {OURS[1]} METEOR {OURS[2]} -> mean position {CURRENT_MEAN_POSITION}\n"
+        f"our current entry: BLEU {OURS[1]} METEOR {OURS[2]} "
+        f"-> mean position {CURRENT_MEAN_POSITION}\n"
     )
     print(header)
     print("-" * len(header))

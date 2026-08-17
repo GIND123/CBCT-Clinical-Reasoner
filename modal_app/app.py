@@ -506,7 +506,15 @@ def store_report(payload: dict) -> dict:
 # resolve vLLM's stack independently avoids the conflict that killed the server.
 radfact_image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install("vllm==0.8.5", "radfact-lite>=0.1.0", "openai>=1.0.0", "requests")
+    # transformers is pinned: vllm 0.8.5 breaks on newer releases with
+    # "Qwen2Tokenizer has no attribute all_special_tokens_extended".
+    .pip_install(
+        "vllm==0.8.5",
+        "transformers==4.51.3",
+        "radfact-lite>=0.1.0",
+        "openai>=1.0.0",
+        "requests",
+    )
     .env({"PYTHONPATH": "/root/src", "CBCT_WORK_DIR": VOLUME_ROOT, "HF_HOME": "/hf"})
     .add_local_dir(REPO_ROOT / "src", "/root/src")
     .add_local_dir(REPO_ROOT / "configs", "/root/configs")

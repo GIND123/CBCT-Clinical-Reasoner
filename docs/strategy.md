@@ -162,6 +162,92 @@ for a class of mistake the real grader would catch. It will still disagree with
 an LLM judge on borderline paraphrase, which is why it selects candidates rather
 than certifies them.
 
+## What the real release actually looks like
+
+Measured on `toothfairy4_v03` (622 cases, 1000 English reports). Several
+assumptions taken from the challenge description turned out to be wrong, and each
+correction is worth recording because it changed a design decision.
+
+### Counts
+
+| | |
+|---|---|
+| Cases | **622** (the dataset page states 625; its subset counts sum to 632) |
+| Centres | P 412, A 95, F 63, S 52 |
+| English reports | 1000 — 255 cases with 1, 360 with 2, 3 with 3, 4 with 4 |
+| Reference length | median **105** tokens, p90 211 |
+| Verifiable phrases | median **8**, mean 8.9 per report |
+
+The phrase count is the number that mattered most: a decoder configured to emit
+up to 26 sentences would triple the reference length and destroy RadFact
+precision for nothing. The cap was refit to 16 and the calibrated optimum sits
+well below it.
+
+### Geometry
+
+Field of view is **much smaller and flatter** than a head CT:
+
+| axis | p5 | median | p95 | max |
+|---|---|---|---|---|
+| z (axial) | 50 mm | **51 mm** | 97 mm | 120 mm |
+| y | 82 mm | 103 mm | 123 mm | 160 mm |
+| x | 82 mm | 111 mm | 139 mm | 160 mm |
+
+Native spacing is 0.30 mm (p5 0.16, p95 0.30). The initial 77 x 134 x 134 mm
+window was therefore ~70% air. Refitting to **56 x 96 x 96 mm at 0.5 mm** cut
+padding to 38% and halved the cache. Crops also centre on the *dentition*
+(a high intensity percentile, which isolates enamel and restorations) rather than
+all bone, whose centroid drifts toward the skull on a large field of view.
+
+### Language
+
+The reports are dictated Italian translated to English. Practical consequences:
+
+* Tooth numbers appear **bare** ("33 abutment of a prosthetic bridge; 34 absent"),
+  not as "tooth 33", so FDI extraction cannot require a keyword prefix.
+* Findings are chained with semicolons, and one sentence routinely carries five
+  tooth-level statements.
+* `mm.` ends sentences constantly; guarding it as an abbreviation merged two
+  findings into one phrase that RadFact then scores all-or-nothing.
+* The commonest single statement is a negative: *"No definite osteolytic or
+  osteocondensing lesions."*
+
+Extending the ontology to the vocabulary actually used - osteolytic/
+osteocondensing lesions, canal course, acquisition coverage, complete dentition,
+periodontitis, plural "canals" - raised concept coverage of real phrases from
+**81% to 90%**.
+
+### Which label space to use
+
+The decisive experiment was the **oracle score**: what the pipeline would achieve
+with a perfect encoder, emitting exactly the prototypes whose ground-truth label
+is 1. It upper-bounds everything downstream, so it is the right way to compare
+label spaces before spending GPU hours.
+
+| label space | K | phrase coverage | **oracle final** | clinical | BLEU-4 | METEOR |
+|---|---:|---:|---:|---:|---:|---:|
+| tooth-masked, 512 | 507 | 84.6% | 0.5406 | 0.583 | 0.296 | 0.447 |
+| tooth-aware, 512 | 512 | 82.1% | 0.5645 | 0.615 | 0.293 | 0.436 |
+| **tooth-aware, 1024** | 989 | **89.0%** | **0.6008** | 0.649 | 0.341 | 0.473 |
+
+Masking tooth numbers collapses every *"absence of teeth …"* sentence into one
+cluster, and its representative then asserts a specific list of eight teeth that
+is wrong for almost every case. Keeping numbers distinct costs nothing and gains
+6 points of oracle score.
+
+### Calibrated prior as a reference point
+
+An image-free, corpus-prior report - one shared threshold, no encoder - scores
+**BLEU-4 0.1225 / METEOR 0.2568** out-of-fold. The public leaderboard's top entry
+at the time of writing sits at 0.1317 / 0.3191.
+
+That the prior lands in the same range is the most useful single observation
+here: it means the visible leaderboard is not yet separating methods on imaging
+ability, and that a submission has to beat a well-calibrated prior before it
+beats anyone else. It is also why `ablation` scores the prior on identical
+machinery - if the encoder cannot beat it out-of-fold, the prior-only bundle is
+the honest submission.
+
 ## Where the remaining headroom is
 
 Ranked by expected value, given that the pipeline above is in place:

@@ -196,3 +196,24 @@ def test_representative_avoids_over_specific_tooth_lists() -> None:
         "Teeth 18, 28, 38 and 48 are impacted.",
     ]
     assert _representative(members) == "Tooth 48 is impacted."
+
+
+def test_column_mask_excludes_unlearnable_statements() -> None:
+    """Masked columns must contribute neither loss nor model-selection signal."""
+    torch = pytest.importorskip("torch")
+    from cbct_reasoner.models.losses import AsymmetricLoss, average_precision
+
+    logits = torch.zeros(4, 3)
+    targets = torch.tensor([[1.0, 0.0, 1.0]] * 4)
+    criterion = AsymmetricLoss()
+
+    full = criterion(logits, targets)
+    masked = criterion(logits, targets, torch.tensor([1.0, 1.0, 0.0]))
+    assert masked < full
+
+    zeroed = criterion(logits, targets, torch.zeros(3))
+    assert float(zeroed) == pytest.approx(0.0)
+
+    scores = torch.tensor([[0.9, 0.1, 0.5], [0.1, 0.9, 0.5], [0.8, 0.2, 0.5], [0.2, 0.8, 0.5]])
+    labels = torch.tensor([[1.0, 0.0, 1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 1.0], [0.0, 1.0, 0.0]])
+    assert average_precision(scores, labels, torch.tensor([1.0, 1.0, 0.0])) == pytest.approx(1.0)

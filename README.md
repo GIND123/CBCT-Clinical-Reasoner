@@ -1,289 +1,182 @@
 # CBCT Clinical Reasoner
 
-A reproducible ToothFairy4 starter repository for ODIN 2026 Task 1: generating a
-maxillofacial and surgical-planning report from one 3D cone-beam CT volume.
+A complete, runnable pipeline for **ODIN 2026 Task 1 (ToothFairy4)**: generating a
+maxillofacial and surgical-planning report from a single 3D cone-beam CT volume.
 
-This repository supplies an executable retrieval baseline, strict data and output
-validation, local development metrics, the official Grand Challenge container contract,
-tests, CI, and a detailed competition analysis. It is a research scaffold—not a medical
-device, diagnostic system, or clinically validated model.
+Preprocessing, label construction, GPU training on Modal, metric-exact
+evaluation, threshold calibration, Hugging Face artifact sync, and the Grand
+Challenge submission container are all wired and tested. Paste the dataset and
+run one command.
 
-## What is implemented
+> Research scaffold for a benchmark. **Not a medical device.** Generated text is a
+> draft for review by a qualified clinician and must not be used for patient care.
 
-- Dataset discovery for CBCT NIfTI volumes and one-to-many English reports.
-- Bounded-memory 3D feature extraction with geometry, intensity, histogram, and pooled
-  projection features.
-- A deterministic nearest-neighbor report-retrieval baseline with a safe, versioned
-  `.npz` artifact.
-- Exact challenge output: `/output/diagnostic-imaging-report.json` containing
-  `{"report": "Generated report text."}`.
-- Lightweight BLEU-4, METEOR-style, and clinical-term development diagnostics.
-- A privacy-preserving leaderboard snapshot with participant and team names removed.
-- Docker, command-line tools, unit tests, linting, and GitHub Actions.
+## Status
 
-The baseline is deliberately transparent and runnable on CPU. It establishes plumbing
-and a reproducible lower bound; it does **not** infer tooth-level pathology or provide
-clinical reasoning. The recommended competition model is an anatomy-to-ontology-to-text
-pipeline described in [docs/method.md](docs/method.md).
-
-## Challenge at a glance
-
-| Item | ToothFairy4 Task 1 |
+| | |
 |---|---|
-| Input | One preprocessed 3D jaw CBCT per case |
-| Training format | One compressed NIfTI (`.nii.gz`) volume per case |
-| Output | One English textual clinical report |
-| Public data | 625 stated patients and 1,001 reports per language |
-| Hidden test | 50 cases from an independent center |
-| Final submissions | Two per team; the better submission is ranked |
-| Public evaluator | BLEU-4 and METEOR, with local/off-platform RadFact support |
-| Clinical review | Blinded expert assessment is described for top systems |
-| Prizes | EUR 1,500 / 1,000 / 500 |
-
-The benchmark emphasizes dental status, bone quality and quantity, critical anatomy,
-anatomical variation, and procedure-related risks for implant placement, extraction,
-sinus lift, and other maxillofacial workflows. The released data contain subsets P, F,
-S, and A; the external-center design makes cross-center validation central rather than
-optional.
-
-One source-quality warning matters: the [dataset page](https://ditto.ing.unimore.it/toothfairy4/)
-states 625 total patients but lists subset counts of 417 + 63 + 52 + 100 = 632. This
-repository does not guess which number is wrong. It discovers actual case directories,
-fails on incomplete cases, and records the observed count in a manifest.
-
-## Anonymized test-phase leaderboard
-
-Snapshot supplied for this repository on **16 August 2026**. Participant usernames,
-team names, profile links, team links, and evaluation links have been removed. Anonymous
-entry IDs identify rows only and are not stable identity hashes. Public algorithm labels
-are retained for method-level analysis.
-
-| Place | Anonymous entry | Algorithm label | Created | Mean position |
-|---:|---|---|---:|---:|
-| 1st | Entry-01 | tf4 baseline | 14 Aug 2026 | 1.5 |
-| 1st | Entry-02 | Stage Seg GPU | 14 Aug 2026 | 1.5 |
-| 3rd | Entry-03 | ToothFairy4 Retrieval Baseline | 14 Aug 2026 | 3.0 |
-| 4th | Entry-04 | SINUS | 14 Aug 2026 | 4.5 |
-| 4th | Entry-05 | NaiveBaseline | 16 Aug 2026 | 4.5 |
-| 6th | Entry-06 | cprvlm | 10 Aug 2026 | 6.0 |
-| 7th | Entry-07 | baseline1 | 13 Aug 2026 | 7.0 |
-| 8th | Entry-08 | ODIN2026 Task1 SK | 11 Aug 2026 | 8.0 |
-| 9th | Entry-09 | TF4 baseline2 | 15 Aug 2026 | 9.5 |
-| 10th | Entry-10 | CBCT Report Retrieval Baseline | 9 Aug 2026 | 10.0 |
-
-The machine-readable copy is
-[data/leaderboard_test_phase_anonymized.csv](data/leaderboard_test_phase_anonymized.csv).
-Use [scripts/anonymize_leaderboard.py](scripts/anonymize_leaderboard.py) for a later
-snapshot; never commit the identity-bearing input CSV.
-
-### What the snapshot does—and does not—show
-
-- There are 10 displayed submissions across eight calendar days. Two pairs are tied,
-  which explains fractional mean positions of 1.5 and 4.5.
-- Six labels explicitly contain “baseline” or “naive.” A labeled retrieval baseline is
-  third, so retrieval is a serious sanity check and competition floor at this snapshot.
-- The shared lead between a generic baseline label and a segmentation-oriented label
-  supports anatomy-aware modeling as a promising direction, but names alone do not
-  establish implementation details.
-- Only aggregate mean position is visible. There are no per-metric values, confidence
-  intervals, case-level errors, runtime data, or clinical-review results. A 1.5 versus
-  3.0 mean position is therefore not evidence of a clinically meaningful gap.
-- The board is time-sensitive and should be treated as an interim snapshot, not the
-  final ODIN 2026 result.
-
-See [docs/competition_analysis.md](docs/competition_analysis.md) for the full analysis,
-risk register, ablation plan, and recommended submission strategy.
-
-## Pipeline
-
-```text
-CBCT (.nii.gz locally / .mha on Grand Challenge)
-        |
-        v
-bounded 3D sampling -> geometry + intensity + projection features
-        |
-        v
-robust feature scaling -> nearest training case
-        |
-        v
-consensus reference report -> schema validation -> {"report": "..."}
-```
-
-This baseline never uses a network call and can run in an offline evaluation container.
-Retrieval provenance is available locally for error analysis but is never written to the
-challenge output.
+| Pipeline | End-to-end, verified on synthetic data (`pytest -m slow`) |
+| Grader parity | BLEU-4 matches NLTK to machine precision; METEOR matches the evaluator's `meteor_lite_score` exactly |
+| Training | Local CPU/GPU, or parallel folds on Modal |
+| Artifacts | Pushed to Hugging Face, private by default |
+| Submission | Container builds against the organizer's base image and interface |
+| Waiting on | The dataset — drop it in [`data/raw/`](data/raw/) |
 
 ## Quick start
 
-Python 3.10 or later is required.
-
 ```bash
-python -m venv .venv
-source .venv/bin/activate              # Windows: .venv\Scripts\activate
-python -m pip install -e ".[dev]"
-pytest
+python -m pip install -e ".[train,hub,cloud,dev]"
+cbct-reasoner doctor                 # environment + credentials check
+
+# no dataset yet? rehearse the whole pipeline in about a minute
+cbct-reasoner synthetic --output /tmp/tf4 --cases 40
+cbct-reasoner --config configs/fast.json --data /tmp/tf4 --work /tmp/ws run-all
+
+# with the real release in data/raw/
+cbct-reasoner inspect
+cbct-reasoner --config configs/toothfairy4.json run-all
 ```
 
-Download ToothFairy4 through the organizer’s authenticated
-[dataset portal](https://ditto.ing.unimore.it/toothfairy4/). Do not commit volumes,
-reports, trained artifacts, or patient-derived outputs.
+Training on Modal:
 
-Expected local layout:
+```bash
+modal volume create cbct-toothfairy4
+modal volume put cbct-toothfairy4 E:/datasets/toothfairy4 /raw
+modal run modal_app/app.py --stage all --push
+```
+
+Full instructions: **[docs/runbook.md](docs/runbook.md)**.
+
+## How it scores
 
 ```text
-/path/to/toothfairy4/
-├── A001/
-│   ├── cbct/volume.nii.gz
-│   └── reports_en/
-│       ├── report_1.txt
-│       └── report_2.txt
-├── F001/
-├── P001/
-└── S001/
+Final = 0.8 × RadFact-F1 + 0.2 × mean(BLEU-4, METEOR)
 ```
 
-Validate and inventory the data:
+The design follows from the grader's actual code rather than from the metric
+names. Five properties drive it:
 
-```bash
-cbct-reasoner index \
-  --data /path/to/toothfairy4 \
-  --output artifacts/manifest.jsonl
+1. **METEOR weights recall ~9:1** (`F = 10PR/(R+9P)`) — coverage beats terseness.
+2. **Its chunk penalty is cubic** — reusing whole clinician phrases beats
+   paraphrasing.
+3. **BLEU-4 is corpus-level with `method1` smoothing** — reports shorter than
+   four tokens cannot score, regardless of correctness.
+4. **RadFact scores phrases with `filter_negatives=False`** — commonly-true
+   normal statements earn both precision and recall.
+5. **A missing result scores zero** — one exception costs 2% of the final score.
+
+Hence the architecture:
+
+```text
+CBCT volume
+   │  orient LPS · resample to fixed mm spacing · crop around the jaws
+   ▼
+2.5D encoder — pretrained 2D backbone over multi-planar slices, attention-pooled
+   │  output bias initialized to the corpus log-odds of every statement
+   ▼
+P(statement k is reportable), k = 1..K   (K ≈ 192 clustered clinician sentences)
+   │  per-statement thresholds fitted by coordinate ascent on the real objective
+   ▼
+contradiction filter → section-ordered narrative report
 ```
 
-Fit the baseline:
+Selecting from a bank of sentences clinicians actually wrote means an entailment
+failure can only come from choosing the wrong finding, never from invented
+language — which protects the 80%-weight clinical metric structurally. Each
+cluster's representative is the member maximizing expected METEOR against the
+others, so a correct prediction also lands the best-scoring surface form.
 
-```bash
-cbct-reasoner train \
-  --data /path/toothfairy4 \
-  --output model/retrieval_model.npz
-```
-
-Predict one case and inspect local-only provenance:
-
-```bash
-cbct-reasoner predict \
-  --model model/retrieval_model.npz \
-  --input /path/to/case/cbct/volume.nii.gz \
-  --output predictions/diagnostic-imaging-report.json \
-  --show-provenance
-
-cbct-reasoner validate-output predictions/diagnostic-imaging-report.json
-```
-
-## Local evaluation
-
-Prepare JSON Lines with one case per line:
-
-```json
-{"case_id":"A001","prediction":"...","reference":"..."}
-```
-
-Then run:
-
-```bash
-cbct-reasoner evaluate --pairs artifacts/validation_pairs.jsonl \
-  --output artifacts/metrics.json
-```
-
-Every metric emitted by this command is labeled as a development proxy. For an official
-comparison, use the organizer’s pinned evaluator. Its current open implementation uses
-BLEU-4 and METEOR and can optionally run RadFact; the challenge states that submissions
-are re-evaluated locally because not all metrics run on Grand Challenge.
-
-Use leave-one-center-out validation and report each center separately. A random
-patient-level split measures in-domain interpolation and will likely overestimate hidden
-external-center performance. Multiple reports for one patient must remain on the same
-side of every split.
-
-## Grand Challenge container
-
-The implementation follows the organizer’s published interface:
-
-| Interface | Container path |
-|---|---|
-| `cbct-image` | `/input/images/cbct/*.mha` |
-| `diagnostic-imaging-report` | `/output/diagnostic-imaging-report.json` |
-| model artifact | `/opt/ml/model/retrieval_model.npz` |
-
-Train the artifact before building:
-
-```bash
-docker build -t cbct-clinical-reasoner:0.1.0 .
-```
-
-Local smoke test:
-
-```bash
-docker run --rm \
-  -v "$PWD/test/input/images/cbct:/input/images/cbct:ro" \
-  -v "$PWD/test/output:/output" \
-  cbct-clinical-reasoner:0.1.0
-```
-
-The image is CPU-compatible. If the feature encoder is replaced by a GPU model, pin its
-CUDA runtime, test without internet access, preserve the same input/output paths, and
-include every checkpoint in the saved image.
+The reasoning is derived in full in **[docs/strategy.md](docs/strategy.md)**,
+including where the remaining headroom is.
 
 ## Repository map
 
 ```text
-.
-├── configs/                 experiment intent and validation policy
-├── data/                    anonymized, non-clinical snapshots only
-├── docs/                    analysis, data, method, and submission guides
-├── model/                   local trained artifact location (ignored by Git)
-├── scripts/                 privacy-preserving maintenance utilities
-├── src/cbct_reasoner/       package, CLI, model, metrics, and GC entrypoint
-├── tests/                   synthetic unit and contract tests
-├── Dockerfile               offline inference image
-└── pyproject.toml           package and development tooling
+configs/                 toothfairy4.json (full) and fast.json (rehearsal)
+data/raw/                paste the release here — git-ignored
+docs/
+  strategy.md            metric derivation and design rationale
+  runbook.md             dataset → training → submission, step by step
+  competition_analysis.md  leaderboard snapshot, risks, ablation plan
+modal_app/app.py         Modal app: one Volume, parallel fold training
+src/cbct_reasoner/
+  config.py              .env loading, paths, experiment configuration
+  text.py                clinical sentence and phrase segmentation
+  ontology.py            maxillofacial finding lexicon (FDI teeth, structures)
+  prototypes.py          sentence clustering → the multi-label space
+  metrics/
+    official.py          bit-exact port of the grader's BLEU-4 and METEOR
+    radfact.py           offline RadFact surrogate + real radfact_lite bridge
+    score.py             0.8/0.2 challenge objective
+  data/                  discovery · preprocessing · splits · corpus · synthetic
+  models/                2.5D and 3D encoders, ASL loss, fold trainer, LLM renderer
+  decode/                decoder, threshold calibration, MBR arbitration
+  pipeline/              stage orchestration and the deployable bundle
+  hub.py                 Hugging Face push/pull (private by default)
+submission/              Grand Challenge container: Dockerfile, entrypoint, scripts
+tests/                   grader parity, segmentation, decoding, full pipeline
 ```
 
-## Recommended competition direction
+## Commands
 
-The strongest defensible system is a staged structured predictor:
+```bash
+cbct-reasoner doctor            # versions, CUDA, credentials, artifact status
+cbct-reasoner inspect           # what the loader found in the dataset directory
+cbct-reasoner synthetic         # generate a ToothFairy4-shaped test dataset
+cbct-reasoner prepare           # corpus + normalized voxel cache (resumable)
+cbct-reasoner prototypes        # build the label space
+cbct-reasoner splits            # --strategy stratified | center
+cbct-reasoner train             # per-fold training, writes out-of-fold predictions
+cbct-reasoner calibrate         # fit thresholds on the real objective
+cbct-reasoner evaluate          # add --radfact-lite for the true clinical metric
+cbct-reasoner package           # assemble the submission bundle
+cbct-reasoner predict --input volume.mha
+cbct-reasoner hub push          # sync artifacts to Hugging Face
+cbct-reasoner run-all           # everything above, in order
+```
 
-1. Normalize orientation and physical spacing while preserving scanner metadata.
-2. Segment and label teeth, jaws, mandibular canals, maxillary sinuses, and other
-   report-relevant structures.
-3. Predict ontology-grounded findings with tooth number, laterality, measurement,
-   uncertainty, and evidence coordinates.
-4. Render fluent English from only those structured findings, with constrained tooth
-   numbering and explicit negation handling.
-5. Ensemble at the finding level, not by unconstrained prose voting.
-6. Calibrate on held-out centers and audit hallucinations, missed critical structures,
-   laterality swaps, and measurement errors with clinicians.
+## Validation discipline
 
-This design aligns lexical overlap with factual correctness while retaining traceability.
-It also lets segmentation labels from earlier ToothFairy releases contribute without
-making segmentation itself the final output.
+- **Group by case.** 374 of 625 patients have more than one report; all of a
+  patient's reports stay on one side of every split.
+- **Report per centre.** The hidden test set is from an independent centre.
+  `--strategy center` is the honest estimate; stratified K-fold reads higher.
+- **Calibrate out-of-fold only.** Thresholds fitted on in-sample probabilities
+  produce a decoder that is confidently wrong on the test set — on 630 cases that
+  error dominates any architecture change.
+- **Surrogate ≠ metric.** `evaluate` prints a lexical RadFact surrogate built for
+  cheap ranking. Confirm with `--radfact-lite` before committing a submission.
 
-## Reproducibility and safety
+## Data handling
 
-- Record dataset release/checksum, subset counts, split manifest, package lock, source
-  commit, checkpoint checksums, GPU/runtime, and decoding parameters for every run.
-- Declare every public training dataset, pretrained model, and external annotation.
-  The challenge forbids undisclosed private data and requires fully automatic inference.
-- Never infer “normal” merely because a detector is uncertain. Separate `absent`,
-  `present`, `uncertain`, and `not assessable` states.
-- Treat generated text as a draft for qualified clinician review. Do not use this code
-  for patient care.
-- Check dataset and model licenses independently of this repository’s MIT code license.
+The ToothFairy4 release is access-controlled patient data.
+
+- Volumes, reports, caches, and trained artifacts are all git-ignored.
+- `hub push` creates **private** repositories; `--public` warns first. The
+  prototype bank contains sentences copied verbatim from clinical reports.
+- `radfact_lite` can run against a local Ollama or vLLM server so report text
+  never reaches a third-party API.
+- Manifests record paths and counts, never report contents.
+
+## Submitting
+
+Teams get two final submissions and the better is ranked. Use them as a hedge:
+a `--prior-only` bundle that needs no GPU and cannot fail on an unusual volume,
+and the full ensemble selected on out-of-fold score. Details in
+[docs/submission.md](docs/submission.md).
 
 ## Primary sources
 
-- [ODIN 2026 challenge overview](https://odin2026.grand-challenge.org/)
-- [Official ToothFairy4 dataset page](https://ditto.ing.unimore.it/toothfairy4/)
-- [Official submission policy and Task 1 contract](https://odin2026.grand-challenge.org/how-to-submit/)
-- [Organizer repository](https://github.com/AImageLab-zip/ToothFairy/tree/65b7f93796ac8f61046585dd5a52964b09890d0f/ODIN2026/ToothFairy4)
+- [ODIN 2026 challenge](https://odin2026.grand-challenge.org/)
+- [ToothFairy4 dataset](https://ditto.ing.unimore.it/toothfairy4/)
+- [Organizer algorithm and evaluation code](https://github.com/AImageLab-zip/ToothFairy/tree/main/ODIN2026/ToothFairy4)
+- [`radfact-lite`](https://pypi.org/project/radfact-lite/) · [Microsoft RadFact](https://github.com/microsoft/RadFact)
 - [ODIN 2026 challenge document, DOI 10.5281/zenodo.19727377](https://doi.org/10.5281/zenodo.19727377)
-- [ODIN 2026 workshop challenge page](https://odin-workshops.org/2026/challenges/)
 
-Challenge facts and interface details were checked on 16 August 2026. The anonymized
-leaderboard values come from the snapshot supplied with this repository and may change.
+Challenge facts were verified against the organizer repository on 17 August 2026.
 
 ## License
 
-Code is released under the [MIT License](LICENSE). Dataset access, clinical reports,
-model weights, third-party code, and challenge submissions remain subject to their own
+Code is MIT ([LICENSE](LICENSE)). Dataset access, clinical reports, model
+weights, third-party code, and challenge submissions remain under their own
 terms.

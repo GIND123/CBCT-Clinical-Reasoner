@@ -1,0 +1,36 @@
+{
+  "name": "toothfairy4-fast-rehearsal",
+  "seed": 2026,
+  "folds": 3,
+  "preprocess": {
+    "spacing_mm": [1.2, 1.2, 1.2],
+    "shape_zyx": [64, 112, 112],
+    "clip_percentiles": [0.5, 99.5],
+    "orientation": "LPS",
+    "dtype": "float16"
+  },
+  "prototypes": {
+    "max_prototypes": 128,
+    "min_support": 4,
+    "embedder": "tfidf",
+    "linkage_threshold": 0.62,
+    "max_sentence_words": 60
+  },
+  "encoder": {
+    "backbone": "resnet3d",
+    "width": 16,
+    "dropout": 0.2,
+    "epochs": 8,
+    "batch_size": 4,
+    "accumulate": 2,
+    "learning_rate": 0.0003,
+    "num_workers": 2,
+    "amp": true,
+    "seed": 2026
+  },
+  "decode": {
+    "calibration_rounds": 3,
+    "min_sentences": 8,
+    "max_sentences": 26
+  }
+}

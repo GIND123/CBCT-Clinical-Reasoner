@@ -48,9 +48,7 @@ def corpus_bleu4(predictions: Iterable[str], references: Iterable[str]) -> float
             totals[order - 1] += sum(candidate_counts.values())
     if prediction_length == 0:
         return 0.0
-    precisions = [
-        (match + 1) / (total + 1) for match, total in zip(clipped, totals, strict=True)
-    ]
+    precisions = [(match + 1) / (total + 1) for match, total in zip(clipped, totals, strict=True)]
     brevity = (
         1.0
         if prediction_length > reference_length
@@ -82,8 +80,7 @@ def meteor_lite(prediction: str, reference: str) -> float:
     recall = matches / len(truth)
     f_mean = (10 * precision * recall) / (recall + 9 * precision)
     chunks = 1 + sum(
-        current != previous + 1
-        for previous, current in zip(indices, indices[1:], strict=False)
+        current != previous + 1 for previous, current in zip(indices, indices[1:], strict=False)
     )
     penalty = 0.5 * (chunks / matches) ** 3
     return float((1 - penalty) * f_mean)

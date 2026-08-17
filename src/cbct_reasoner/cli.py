@@ -72,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--prior-only", action="store_true", help="calibrate without an image model"
     )
     calibrate.add_argument("--rounds", type=int)
+    calibrate.add_argument("--oof", type=Path, help="alternative out-of-fold probability file")
 
     evaluate = commands.add_parser("evaluate", help="score predictions")
     evaluate.add_argument("--pairs", type=Path, help="score a prediction/reference JSONL instead")
@@ -81,6 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--radfact-provider", choices=("openai", "ollama"), default="openai")
     evaluate.add_argument("--radfact-base-url")
     evaluate.add_argument("--output", type=Path)
+    evaluate.add_argument("--oof", type=Path)
 
     commands.add_parser("ablation", help="score the prior against the trained model")
     commands.add_parser("plots", help="render every diagnostic figure")
@@ -203,7 +205,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     if command == "calibrate":
         _emit(
             pipeline.calibrate_decoder(
-                paths, config, prior_only=args.prior_only, rounds=args.rounds
+                paths, config, prior_only=args.prior_only, rounds=args.rounds, oof=args.oof
             )
         )
         return 0
@@ -227,6 +229,7 @@ def _dispatch(args: argparse.Namespace) -> int:
                 use_radfact_lite=args.radfact_lite,
                 radfact_options=options,
                 output=args.output,
+                oof=args.oof,
             )
         )
         return 0

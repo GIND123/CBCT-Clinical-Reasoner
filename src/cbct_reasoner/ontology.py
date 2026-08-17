@@ -77,6 +77,15 @@ class Concept:
     def matches(self, text: str) -> bool:
         return any(pattern.search(text) for pattern in self.patterns)
 
+    def match_end(self, text: str) -> int | None:
+        """End offset of the earliest-ending match, or None if the concept is absent.
+
+        Callers use this to scope negation: a cue that appears after the concept
+        has finished being stated is negating something else.
+        """
+        ends = [match.end() for pattern in self.patterns if (match := pattern.search(text))]
+        return min(ends) if ends else None
+
 
 def _c(
     key: str,
@@ -98,6 +107,38 @@ def _c(
     )
 
 
+#: Verbs these reports use to say a structure is, or is not, inside the volume.
+#: "excluded" is deliberately absent: NEGATION_RE already treats it as a negation
+#: cue, so "condyles excluded from the acquisition" arrives here as coverage with
+#: polarity *absent*, which is what it means.
+_COVERAGE_VERBS = (
+    r"inclu(?:ded|so|si\w*|sion)|represented|acquired|depicted|imaged|visible|"
+    r"assessable|evaluable|explorable|comprised|contained|appreciable|"
+    r"documented|covered|aerated|scanned"
+)
+
+#: Where the structure has to be, for the sentence to be about coverage at all.
+_COVERAGE_SCOPE = r"scan\w*|acquisition|acquired|volume|field|examination|study|CT|FOV"
+
+
+def _coverage(key: str, label: str, anatomy: str) -> Concept:
+    """A concept for "<anatomy> is (not) inside the acquired volume".
+
+    Coverage is split per structure rather than kept as one ``scan_coverage``
+    concept because the surrogate hard-zeros entailment between opposite
+    polarities of the *same* concept. Sharing one key would make "the maxilla is
+    included" contradict "the condyles are not included", which are both true of
+    most scans in this corpus and contradict nothing.
+    """
+    return _c(
+        key,
+        "technique",
+        label,
+        rf"\b(?:{anatomy})\b[^.]{{0,70}}?\b(?:{_COVERAGE_VERBS})\b",
+        rf"\b(?:{_COVERAGE_VERBS})\b[^.]{{0,40}}?\b(?:{_COVERAGE_SCOPE})\b[^.]{{0,40}}?\b(?:{anatomy})\b",
+    )
+
+
 CONCEPTS: tuple[Concept, ...] = (
     # --- technique -------------------------------------------------------
     _c(
@@ -114,11 +155,39 @@ CONCEPTS: tuple[Concept, ...] = (
         "anatomical coverage of the acquisition",
         # Distinct from scan *quality*, which RadFact's parser discards. Which jaw
         # was actually imaged is a verifiable statement about the volume.
-        r"\b(?:maxilla|mandible|maxillae)\b[^.]{0,30}\bnot\s+"
-        r"(?:represented|acquired|depicted|included|imaged)\b",
         r"\bno\s+diagnostic\s+scans?\b",
         r"\bdiagnostic\s+scans?\b[^.]{0,30}\babsent\b",
         r"\bacquisition\s+(?:window|volume)\b",
+    ),
+    # What is inside the volume is the single most frequent thing these reports
+    # assert - 16% of all reference phrases - so it gets one concept per
+    # structure rather than being folded into a generic coverage flag.
+    _coverage(
+        "coverage_maxilla",
+        "maxilla within the acquired volume",
+        # The lookahead keeps "the maxillary sinuses are minimally included"
+        # from also asserting that the maxillary *bone* was captured.
+        r"maxilla(?!ry\s+sinus)\w*|upper\s+jaw|palat\w*",
+    ),
+    _coverage(
+        "coverage_mandible",
+        "mandible within the acquired volume",
+        r"mandible|mandibular\s+(?:body|bone|arch|ramus|branch)|lower\s+jaw|hemimandible",
+    ),
+    _coverage(
+        "coverage_condyle",
+        "condyles within the acquired volume",
+        r"condyl\w*|coronoid|temporomandibular|\bTMJ\b",
+    ),
+    _coverage(
+        "coverage_sinus",
+        "maxillary sinuses within the acquired volume",
+        r"sinus\w*|antr\w*",
+    ),
+    _coverage(
+        "coverage_dentition",
+        "dental arches within the acquired volume",
+        r"dental\s+(?:element|arch)\w*|arches|crowns?\s+of\s+the",
     ),
     _c("field_of_view", "technique", "field of view", r"\bfield\s+of\s+view\b", r"\bFOV\b"),
     # --- dentition -------------------------------------------------------
@@ -149,7 +218,14 @@ CONCEPTS: tuple[Concept, ...] = (
         r"\bimpact(?:ed|ion)\b",
         r"\bunerupted\b",
         r"\bretained\s+(?:tooth|third\s+molar)\b",
-        r"\binclu(?:so|ded)\b",
+        # "Included" meant impaction here because the corpus is translated from
+        # Italian, where "incluso" is the term for an impacted tooth. Left
+        # unanchored it also fired on "included in the scan volume", which is
+        # how 14% of all reference phrases came to be labelled as impactions.
+        # It now needs a tooth beside it.
+        r"\b(?:tooth|teeth|element|elements|molars?|canines?|premolars?|incisors?)\s*"
+        r"(?:\d{2}[\s,and/]*)*[^.]{0,20}?\binclu(?:so|ded|sion)\b",
+        r"\binclu(?:so|ded|sion)\b[^.]{0,20}?\b(?:tooth|teeth|element|elements)\b",
         tooth_specific=True,
     ),
     _c(
@@ -632,24 +708,42 @@ def detect_laterality(text: str) -> str:
 
 
 def extract_mentions(phrase: str) -> list[Mention]:
-    """Map one phrase onto every ontology concept it expresses."""
-    negated = bool(NEGATION_RE.search(phrase))
+    """Map one phrase onto every ontology concept it expresses.
+
+    Negation is scoped rather than applied to the whole phrase. A cue counts
+    against a concept only if it begins before that concept has finished being
+    stated, which is the usual forward-scoping rule and matters here because
+    these reports routinely coordinate a positive finding with a negative one::
+
+        The maxilla is partially included in the scan and is not assessable.
+
+    Phrase-level negation read that as "the maxilla is not included" - the
+    opposite of what it says - and the surrogate hard-zeros entailment between
+    opposite polarities, so the most frequent statement in the corpus was being
+    scored as contradicting its own references.
+    """
+    cues = [match.start() for match in NEGATION_RE.finditer(phrase)]
     uncertain = bool(UNCERTAINTY_RE.search(phrase))
     laterality = detect_laterality(phrase)
     teeth = extract_teeth(phrase)
     measurements = extract_measurements(phrase)
-    return [
-        Mention(
-            concept=concept.key,
-            negated=negated,
-            uncertain=uncertain,
-            laterality=laterality if concept.lateralized else "unspecified",
-            teeth=teeth if concept.tooth_specific else (),
-            measurements=measurements if concept.measurable else (),
+
+    mentions = []
+    for concept in CONCEPTS:
+        end = concept.match_end(phrase)
+        if end is None:
+            continue
+        mentions.append(
+            Mention(
+                concept=concept.key,
+                negated=any(cue < end for cue in cues),
+                uncertain=uncertain,
+                laterality=laterality if concept.lateralized else "unspecified",
+                teeth=teeth if concept.tooth_specific else (),
+                measurements=measurements if concept.measurable else (),
+            )
         )
-        for concept in CONCEPTS
-        if concept.matches(phrase)
-    ]
+    return mentions
 
 
 def concept_profile(phrases: Iterable[str]) -> dict[str, str]:

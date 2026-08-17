@@ -38,7 +38,7 @@ import re
 from collections.abc import Iterable, Sequence
 from functools import lru_cache
 
-from cbct_reasoner.ontology import extract_mentions
+from cbct_reasoner.ontology import extract_mentions, extract_teeth
 
 #: A statement's clinical content: concepts with polarity, laterality, teeth.
 AssertionKey = tuple[frozenset[tuple[str, str]], str, frozenset[int]]
@@ -86,6 +86,12 @@ EXCLUSIVE_ATTRIBUTES: tuple[frozenset[str], ...] = (
 #: Concepts that assert a tooth is not there.
 _ABSENCE_CONCEPTS = frozenset({"missing_tooth", "edentulous"})
 
+#: Edentulism of the whole arch, as opposed to a gap at named positions.
+_COMPLETE_EDENTULISM_RE = re.compile(
+    r"\b(?:complete|total)\s+edentul\w*|\bedentul\w*\s+(?:arch|mandible|maxilla)",
+    re.IGNORECASE,
+)
+
 
 def _words(text: str) -> frozenset[str]:
     return frozenset(re.findall(r"[a-z]+", text.lower()))
@@ -121,12 +127,29 @@ def conflicts(first: str, second: str) -> str | None:
             if left and right and left != right:
                 return f"{sorted(shared)[0]}: {sorted(left)[0]} vs {sorted(right)[0]}"
 
+    # Complete edentulism carries no tooth numbers to intersect, so it needs its
+    # own rule: it rules out every specific dental finding, not just overlapping
+    # ones. A mandible cannot be toothless and also carry occlusal composites.
+    for edentulous, other in ((first, second), (second, first)):
+        if not _COMPLETE_EDENTULISM_RE.search(edentulous):
+            continue
+        # Tooth numbers are read from the text rather than from the mentions:
+        # only concepts flagged tooth_specific carry them, and "restoration" is
+        # not one, so a sentence about composites on teeth 36 and 37 looked
+        # toothless to this check.
+        described = set(extract_teeth(other))
+        if described and any(
+            m.polarity == "present" and m.concept not in _ABSENCE_CONCEPTS
+            for m in extract_mentions(other)
+        ):
+            return f"complete edentulism vs findings on teeth {sorted(described)}"
+
     # A tooth cannot be missing in one sentence and restored in the next.
     for absent, present in ((first_mentions, second_mentions), (second_mentions, first_mentions)):
         gone = {
             tooth
             for m in absent
-            if m.concept in _ABSENCE_CONCEPTS and m.polarity == "absent"
+            if m.concept in _ABSENCE_CONCEPTS and m.polarity == "present"
             for tooth in m.teeth
         }
         if not gone:
@@ -150,6 +173,34 @@ _DANGLING_RE = re.compile(
     r"a\s+prosthetic\s+crown\s+is\s+present)",
     re.IGNORECASE,
 )
+
+
+#: Back-references to a tooth named in a sentence that is no longer there.
+_LATTER_RE = re.compile(
+    r"\b(?:this|the)\s+(?:latter|former|same|aforementioned|said)\b"
+    r"|\bof\s+(?:this|that)\s+(?:tooth|element)\b",
+    re.IGNORECASE,
+)
+
+
+def is_well_formed(text: str) -> bool:
+    """Can this sentence stand alone in a report?
+
+    Rejects the wreckage of splitting one patient's narrative into sentences:
+    clauses opening with a reference to something the previous sentence named
+    ("it has undergone endodontic treatment", "distal to the crown of this
+    latter tooth"), and fragments carrying a bracket whose partner was left
+    behind ("Endodontic material beyond the apex of the distal root)").
+
+    These cost nothing to drop - they are unreadable wherever they land - so the
+    check is always on, unlike the tooth-number filter below.
+    """
+    stripped = text.strip()
+    if not stripped or _DANGLING_RE.match(stripped):
+        return False
+    if _LATTER_RE.search(stripped):
+        return False
+    return stripped.count("(") == stripped.count(")")
 
 
 def is_generic(text: str) -> bool:

@@ -34,6 +34,10 @@ def candidates() -> dict[str, str]:
     captioning = Path("artifacts/final_report.txt")
     if captioning.is_file():
         out["captioning_optimised"] = captioning.read_text(encoding="utf-8").strip()
+    final_score = Path("artifacts/final_score_report.json")
+    if final_score.is_file():
+        payload = json.loads(final_score.read_text(encoding="utf-8"))
+        out["final_score_optimised"] = " ".join(payload["report"].split()).strip()
     return out
 
 
@@ -41,9 +45,22 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=120)
     parser.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct")
+    parser.add_argument(
+        "--only",
+        default="",
+        help="comma-separated candidate names; default runs every candidate found",
+    )
+    parser.add_argument("--out", default="artifacts/surrogate_validation.json")
     args = parser.parse_args()
 
     reports = candidates()
+    if args.only:
+        wanted = [name.strip() for name in args.only.split(",") if name.strip()]
+        missing = [name for name in wanted if name not in reports]
+        if missing:
+            print(f"unknown candidates: {missing}; have {sorted(reports)}")
+            return 1
+        reports = {name: reports[name] for name in wanted}
     entries = load_corpus("work/corpus.jsonl")
     references = {e.case_id: e.reference for e in entries}
 
@@ -81,7 +98,16 @@ def main() -> int:
     print(f"ranking by surrogate   : {order_surrogate}")
     print(f"surrogate picks the same winner: {order_real[0] == order_surrogate[0]}")
 
-    Path("artifacts/surrogate_validation.json").write_text(
+    if len(rows) >= 2:
+        from scipy.stats import spearmanr
+
+        correlation = spearmanr(
+            [surrogate[name]["final"] for name, _, _ in rows],
+            [value for _, _, value in rows],
+        ).statistic
+        print(f"Spearman(surrogate Final, real Final) = {correlation:.3f}")
+
+    Path(args.out).write_text(
         json.dumps(
             {
                 "model": result["model"],

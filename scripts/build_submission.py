@@ -95,9 +95,23 @@ def main() -> int:
             "scale": adaptive_payload["scale"],
             "order": [remap[i] for i in adaptive_payload["order"] if i in remap],
         }
-        metrics_path = REPO_ROOT / "artifacts/adaptive_report_metrics.json"
+        # Derived from --adaptive rather than hardcoded, and cross-checked: a
+        # provenance line that describes a different fit than the one embedded
+        # is worse than no provenance line, because it reads as verification.
+        metrics_path = adaptive_path.with_name(f"{adaptive_path.stem}_metrics.json")
         if metrics_path.is_file():
             metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+            embedded = (len(adaptive_payload["core"]), len(adaptive_payload["conditional"]))
+            recorded = (metrics.get("core"), metrics.get("gated"))
+            if recorded != embedded:
+                print(
+                    f"warning: {metrics_path.name} describes {recorded} core/gated statements "
+                    f"but {adaptive_path.name} embeds {embedded}; omitting stale provenance"
+                )
+                metrics = None
+        else:
+            metrics = None
+        if metrics is not None:
             provenance.append(
                 "Adaptive report: {} core + {} gated statements, FINAL {:.4f} "
                 "(RadFact P {:.3f} R {:.3f}, BLEU {:.4f}, METEOR {:.4f}).".format(

@@ -45,6 +45,7 @@ def main() -> int:
         help="stop once a statement buys less Final Score than this",
     )
     parser.add_argument("--out", default="artifacts/report_length_choice.json")
+    parser.add_argument("--core-out", default="artifacts/final_score_core.json")
     args = parser.parse_args()
 
     trajectory = json.loads(Path(args.trajectory).read_text(encoding="utf-8"))
@@ -88,7 +89,22 @@ def main() -> int:
         json.dumps({"knee": knee, "longest": best, "min_gain": args.min_gain}, indent=2) + "\n",
         encoding="utf-8",
     )
-    print(f"\nwrote {args.out}")
+
+    # Written in the shape fit_adaptive_report.py consumes, so the chosen length
+    # flows straight into gating without a hand-copied index list.
+    from cbct_reasoner.prototypes import PrototypeBank
+    from cbct_reasoner.text import join_report
+
+    bank = PrototypeBank.load("artifacts/prototypes.json")
+    text = join_report([bank[i].text for i in knee["indices"]])
+    core_path = Path(args.core_out)
+    core_path.write_text(
+        json.dumps({**knee, "report": text}, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    Path(core_path.with_suffix(".txt")).write_text(text + "\n", encoding="utf-8")
+    print(f"\nwrote {args.out} and {core_path}")
+    print(f"\n{text}")
     return 0
 
 

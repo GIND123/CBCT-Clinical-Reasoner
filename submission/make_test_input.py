@@ -20,16 +20,25 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = REPO_ROOT / "submission" / "test" / "input"
 
 
-def synthesize(case_id: str) -> sitk.Image:
+def synthesize(
+    case_id: str,
+    shape: tuple[int, int, int] = (160, 240, 240),
+    spacing: float = 0.3,
+) -> sitk.Image:
+    """A stand-in CBCT.
+
+    Shape and spacing are settable because the report is now conditioned on
+    acquisition geometry, so testing the container needs volumes that differ in
+    field of view - not just one synthetic case repeated.
+    """
     rng = np.random.default_rng(2026)
-    shape = (160, 240, 240)
     volume = rng.normal(0.25, 0.06, size=shape).astype(np.float32)
     z = np.linspace(-1, 1, shape[0])[:, None, None]
     y = np.linspace(-1, 1, shape[1])[None, :, None]
     x = np.linspace(-1, 1, shape[2])[None, None, :]
     volume += 0.7 * np.exp(-((y - 0.15) ** 2 + x**2) * 5.0) * np.exp(-(z**2) * 2.5)
     image = sitk.GetImageFromArray(volume)
-    image.SetSpacing((0.3, 0.3, 0.3))
+    image.SetSpacing((spacing, spacing, spacing))
     return image
 
 
@@ -38,6 +47,8 @@ def main() -> int:
     parser.add_argument("--case", type=Path, help="a case directory containing cbct/volume.nii.gz")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--case-id", default="P001")
+    parser.add_argument("--shape", type=int, nargs=3, default=(160, 240, 240))
+    parser.add_argument("--spacing", type=float, default=0.3)
     args = parser.parse_args()
 
     case_id = args.case.name if args.case else args.case_id
@@ -47,7 +58,7 @@ def main() -> int:
             raise SystemExit(f"No NIfTI volume under {args.case / 'cbct'}")
         image = sitk.ReadImage(str(source))
     else:
-        image = synthesize(case_id)
+        image = synthesize(case_id, tuple(args.shape), args.spacing)
 
     images_dir = args.output / "images" / "cbct"
     images_dir.mkdir(parents=True, exist_ok=True)

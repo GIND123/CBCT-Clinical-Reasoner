@@ -1,0 +1,11 @@
+position,anonymous_entry,algorithm,created,mean_position
+1,Entry-01,tf4 baseline,2026-08-14,1.5
+1,Entry-02,Stage Seg GPU,2026-08-14,1.5
+3,Entry-03,ToothFairy4 Retrieval Baseline,2026-08-14,3.0
+4,Entry-04,SINUS,2026-08-14,4.5
+4,Entry-05,NaiveBaseline,2026-08-16,4.5
+6,Entry-06,cprvlm,2026-08-10,6.0
+7,Entry-07,baseline1,2026-08-13,7.0
+8,Entry-08,ODIN2026 Task1 SK,2026-08-11,8.0
+9,Entry-09,TF4 baseline2,2026-08-15,9.5
+10,Entry-10,CBCT Report Retrieval Baseline,2026-08-09,10.0

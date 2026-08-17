@@ -154,3 +154,45 @@ def test_mbr_prefers_the_consensus_candidate() -> None:
 
     assert index != 3
     assert scores[3] == scores.min()
+
+
+def test_select_many_matches_per_case_selection(bank) -> None:
+    """Calibration uses the vectorized path; it must be identical to the deployed one."""
+    rng = np.random.default_rng(11)
+    probabilities = rng.random((40, len(bank))).astype(np.float32)
+    for settings in (
+        DecoderSettings(min_sentences=0, max_sentences=len(bank)),
+        DecoderSettings(min_sentences=3, max_sentences=4),
+        DecoderSettings(min_sentences=len(bank), max_sentences=len(bank)),
+    ):
+        decoder = ReportDecoder(bank, np.full(len(bank), 0.5, np.float32), settings=settings)
+        assert decoder.select_many(probabilities) == [decoder.select(row) for row in probabilities]
+
+
+def test_tooth_aware_canonicalisation_separates_teeth() -> None:
+    from cbct_reasoner.text import canonicalize
+
+    masked_36 = canonicalize("Tooth 36 is impacted.")
+    masked_46 = canonicalize("Tooth 46 is impacted.")
+    assert masked_36 == masked_46
+
+    aware_36 = canonicalize("Tooth 36 is impacted.", mask_numbers=False)
+    aware_46 = canonicalize("Tooth 46 is impacted.", mask_numbers=False)
+    assert aware_36 != aware_46
+
+
+def test_representative_avoids_over_specific_tooth_lists() -> None:
+    """A medoid naming eight teeth is not entailed by a reference naming two.
+
+    Representative choice is scored on expected entailment (0.8) plus expected
+    METEOR (0.2), so the phrasing that most members can support must win.
+    """
+    from cbct_reasoner.prototypes import _representative
+
+    members = [
+        "Tooth 48 is impacted.",
+        "Tooth 48 is impacted.",
+        "Tooth 48 is impacted.",
+        "Teeth 18, 28, 38 and 48 are impacted.",
+    ]
+    assert _representative(members) == "Tooth 48 is impacted."

@@ -108,6 +108,18 @@ CONCEPTS: tuple[Concept, ...] = (
         r"\bCBCT\b",
         r"\bCT\s+scan\b",
     ),
+    _c(
+        "scan_coverage",
+        "technique",
+        "anatomical coverage of the acquisition",
+        # Distinct from scan *quality*, which RadFact's parser discards. Which jaw
+        # was actually imaged is a verifiable statement about the volume.
+        r"\b(?:maxilla|mandible|maxillae)\b[^.]{0,30}\bnot\s+"
+        r"(?:represented|acquired|depicted|included|imaged)\b",
+        r"\bno\s+diagnostic\s+scans?\b",
+        r"\bdiagnostic\s+scans?\b[^.]{0,30}\babsent\b",
+        r"\bacquisition\s+(?:window|volume)\b",
+    ),
     _c("field_of_view", "technique", "field of view", r"\bfield\s+of\s+view\b", r"\bFOV\b"),
     # --- dentition -------------------------------------------------------
     _c(
@@ -125,6 +137,9 @@ CONCEPTS: tuple[Concept, ...] = (
         "missing tooth",
         r"\b(?:absence|absent|missing|agenesis)\s+of\s+(?:the\s+)?(?:tooth|teeth|element)",
         r"\btooth\s+\d{2}\s+is\s+(?:missing|absent)\b",
+        r"\b\d{2}\s+(?:is\s+|are\s+)?(?:absent|missing)\b",
+        r"\babsence\s+of\s+e\.?\s?d\.?",
+        r"\bedentulous\s+(?:space|area|region|site)s?\b",
         tooth_specific=True,
     ),
     _c(
@@ -193,6 +208,16 @@ CONCEPTS: tuple[Concept, ...] = (
         tooth_specific=True,
     ),
     _c(
+        "complete_dentition",
+        "dentition",
+        "complete dentition",
+        r"\bcomplete\s+dentition\b",
+        r"\bpresence\s+(?:in\s+the\s+arch\s+)?of\s+all\s+(?:the\s+)?dental\s+elements\b",
+        r"\bteeth\s+from\s+\d{2}\s+to\s+\d{2}\s+are\s+present\b",
+        r"\ball\s+(?:teeth|dental\s+elements)\s+(?:are\s+)?present\b",
+        tooth_specific=True,
+    ),
+    _c(
         "supernumerary",
         "dentition",
         "supernumerary tooth",
@@ -252,8 +277,31 @@ CONCEPTS: tuple[Concept, ...] = (
         "periodontal",
         "periodontal bone loss",
         r"\bperiodontal\s+(?:bone\s+)?(?:loss|defect|disease)\b",
+        r"\bperiodontit\w*\b",
         r"\b(?:horizontal|vertical|angular)\s+bone\s+loss\b",
         r"\bcrestal\s+bone\s+loss\b",
+        measurable=True,
+    ),
+    _c(
+        "osteolytic_lesion",
+        "periapical",
+        "osteolytic or osteocondensing lesion",
+        # The most common statement in this corpus, almost always negated:
+        # "No definite osteolytic or osteocondensing lesions."
+        r"\bosteolyt\w*\b",
+        r"\bosteocondens\w*\b",
+        r"\bosteorarefact\w*\b",
+        r"\b(?:radiolucent|radiopaque)\s+(?:lesion|area|image|formation)s?\b",
+        r"\bareas?\s+of\s+(?:bone\s+)?(?:condensation|rarefaction|osteorarefaction)\b",
+        measurable=True,
+    ),
+    _c(
+        "pericoronal_radiolucency",
+        "periapical",
+        "pericoronal radiolucency",
+        r"\bpericoronal\b",
+        r"\bfollicular\s+(?:sac|space|widening)\b",
+        tooth_specific=True,
         measurable=True,
     ),
     _c("furcation", "periodontal", "furcation involvement", r"\bfurcation\b"),
@@ -263,8 +311,9 @@ CONCEPTS: tuple[Concept, ...] = (
         "mandibular_canal",
         "mandible",
         "mandibular canal",
-        r"\bmandibular\s+canal\b",
-        r"\binferior\s+alveolar\s+(?:nerve|canal)\b",
+        r"\bmandibular\s+canals?\b",
+        r"\binferior\s+alveolar\s+(?:nerves?|canals?)\b",
+        r"\balveolar\s+canals?\b",
         r"\bIAN\b",
         lateralized=True,
     ),
@@ -272,11 +321,24 @@ CONCEPTS: tuple[Concept, ...] = (
         "canal_proximity",
         "mandible",
         "proximity to the mandibular canal",
-        r"\b(?:close|proximity|contact|adjacen\w*|abut\w*|contiguous|near)\b[^.]{0,60}"
-        r"\b(?:mandibular\s+canal|inferior\s+alveolar)\b",
-        r"\b(?:mandibular\s+canal|inferior\s+alveolar)\b[^.]{0,60}\b(?:close|proximity|contact)\b",
+        r"\b(?:close|proximity|contact|adjacen\w*|abut\w*|contigu\w*|near)\b[^.]{0,60}"
+        r"\b(?:mandibular|alveolar)\s+canals?\b",
+        r"\b(?:mandibular|alveolar)\s+canals?\b[^.]{0,60}\b(?:close|proximity|contact|contigu\w*)\b",
+        r"\b(?:in\s+)?(?:direct\s+)?(?:contact|continuity)\s+with\s+(?:the\s+)?"
+        r"(?:mandibular|alveolar)\s+canals?\b",
         lateralized=True,
         measurable=True,
+    ),
+    _c(
+        "canal_course",
+        "mandible",
+        "mandibular canal course",
+        # "Course and emergence of the mandibular canals are regular, predominantly
+        # lingual" is boilerplate here and carries real surgical meaning.
+        r"\b(?:course|emergence|exits?|trajectory)\b[^.]{0,40}\bcanals?\b",
+        r"\bcanals?\b[^.]{0,40}\b(?:course|emergence|foraminal\s+exits?|trajectory)\b",
+        r"\bpredominantly\s+(?:lingual|buccal|vestibular|central)\b",
+        lateralized=True,
     ),
     _c("mental_foramen", "mandible", "mental foramen", r"\bmental\s+foram\w*\b", lateralized=True),
     _c("anterior_loop", "mandible", "anterior loop", r"\banterior\s+loop\b", lateralized=True),
@@ -334,6 +396,7 @@ CONCEPTS: tuple[Concept, ...] = (
         "maxilla",
         "bone density",
         r"\bbone\s+(?:densit\w*|qualit\w*|mineraliz\w*)\b",
+        r"\btroph(?:ism|ic)\w*\b",
         r"\b(?:D[1-4]|type\s+[IVX]+)\s+bone\b",
         r"\btrabecular\s+bone\b",
         r"\bcortical\s+(?:bone|plate|thickness)\b",

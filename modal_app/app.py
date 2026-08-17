@@ -59,7 +59,10 @@ secret = modal.Secret.from_dict(_SECRET_VALUES or {"HF_TOKEN": ""})
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 hf_cache = modal.Volume.from_name(f"{APP_NAME}-hf-cache", create_if_missing=True)
 
-image = (
+# Local sources are attached LAST: Modal forbids a build step after
+# `add_local_*`, and attaching them last also means editing repository code does
+# not invalidate the (slow) dependency layer.
+_base = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("git")
     .pip_install(
@@ -71,6 +74,7 @@ image = (
         "huggingface-hub>=0.24",
         "tqdm>=4.66",
         "nltk>=3.9",
+        "matplotlib>=3.8",
     )
     .env(
         {
@@ -80,13 +84,21 @@ image = (
             "TOKENIZERS_PARALLELISM": "false",
         }
     )
-    .add_local_dir(REPO_ROOT / "src", "/root/src")
-    .add_local_dir(REPO_ROOT / "configs", "/root/configs")
 )
 
-llm_image = image.pip_install(
+_llm_base = _base.pip_install(
     "transformers>=4.44", "accelerate>=0.33", "peft>=0.12", "sentencepiece>=0.2"
 )
+
+
+def _with_sources(base: modal.Image) -> modal.Image:
+    return base.add_local_dir(REPO_ROOT / "src", "/root/src").add_local_dir(
+        REPO_ROOT / "configs", "/root/configs"
+    )
+
+
+image = _with_sources(_base)
+llm_image = _with_sources(_llm_base)
 
 app = modal.App(APP_NAME)
 
@@ -251,6 +263,26 @@ def evaluate(config_name: str | None = None, prior_only: bool = False) -> dict:
     return summary
 
 
+@app.function(image=image, volumes=VOLUMES, timeout=2 * 60 * 60, cpu=4.0, memory=16384)
+def ablation(config_name: str | None = None) -> dict:
+    from cbct_reasoner import pipeline
+
+    paths, config = _context(config_name)
+    summary = pipeline.ablation(paths, config)
+    volume.commit()
+    return summary
+
+
+@app.function(image=image, volumes=VOLUMES, timeout=3600, cpu=4.0, memory=16384)
+def figures(config_name: str | None = None) -> dict:
+    from cbct_reasoner import pipeline
+
+    paths, config = _context(config_name)
+    summary = pipeline.figures(paths, config)
+    volume.commit()
+    return summary
+
+
 @app.function(image=image, volumes=VOLUMES, timeout=1800)
 def package(config_name: str | None = None, include_checkpoints: bool = True) -> dict:
     from cbct_reasoner import pipeline
@@ -360,6 +392,10 @@ def main(
         show("calibrate", calibrate.remote(config_name, prior_only))
     if stage in {"all", "evaluate"}:
         show("evaluate", evaluate.remote(config_name, prior_only))
+    if stage in {"all", "ablation"}:
+        show("ablation", ablation.remote(config_name))
+    if stage in {"all", "figures"}:
+        show("figures", figures.remote(config_name))
     if stage in {"all", "package"}:
         show("package", package.remote(config_name, not prior_only))
     if push:

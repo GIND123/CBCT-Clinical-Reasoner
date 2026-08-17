@@ -89,6 +89,14 @@ class ReportDecoder:
         self._contradictions = (
             contradiction_pairs(bank) if self.settings.resolve_contradictions else set()
         )
+        # Indexed by prototype so resolution costs O(selected x conflicts-of-selected)
+        # instead of scanning every pair. At ~1000 prototypes the flat set holds
+        # hundreds of thousands of pairs and dominated calibration runtime.
+        conflicts: dict[int, set[int]] = {}
+        for left, right in self._contradictions:
+            conflicts.setdefault(left, set()).add(right)
+            conflicts.setdefault(right, set()).add(left)
+        self._conflicts = {key: frozenset(value) for key, value in conflicts.items()}
 
     # -- selection ---------------------------------------------------------
 
@@ -117,10 +125,58 @@ class ReportDecoder:
 
     def _resolve(self, selected: Sequence[int], values: np.ndarray) -> list[int]:
         keep = set(selected)
-        for left, right in self._contradictions:
-            if left in keep and right in keep:
-                keep.discard(right if values[left] >= values[right] else left)
+        for left in selected:
+            if left not in keep:
+                continue
+            for right in self._conflicts.get(left, ()):
+                if right in keep:
+                    keep.discard(right if values[left] >= values[right] else left)
+                    if left not in keep:
+                        break
         return sorted(keep)
+
+    def select_many(self, probabilities: np.ndarray) -> list[list[int]]:
+        """Vectorized selection over a whole probability matrix.
+
+        Calibration evaluates this thousands of times, so the per-row numpy work
+        is hoisted into single array operations and only the (tiny) selected set
+        is touched in Python.
+        """
+        matrix = np.asarray(probabilities, dtype=np.float32)
+        if matrix.ndim != 2 or matrix.shape[1] != self.thresholds.shape[0]:
+            raise ValueError(
+                f"probabilities must have shape (n, {self.thresholds.shape[0]}), got {matrix.shape}"
+            )
+        margins = matrix - self.thresholds
+        above = margins >= 0
+        counts = above.sum(axis=1)
+        minimum = self.settings.min_sentences
+        maximum = self.settings.max_sentences
+
+        # One partial sort covers both the floor and the cap.
+        width = max(minimum, maximum)
+        top = np.argpartition(-margins, min(width, margins.shape[1] - 1), axis=1)[:, :width]
+        ordered = np.take_along_axis(
+            top, np.argsort(-np.take_along_axis(margins, top, axis=1), axis=1), axis=1
+        )
+
+        selections: list[list[int]] = []
+        for row in range(matrix.shape[0]):
+            if counts[row] < minimum:
+                chosen = set(np.flatnonzero(above[row]).tolist()) | set(
+                    ordered[row, :minimum].tolist()
+                )
+            elif counts[row] > maximum:
+                chosen = set(ordered[row, :maximum].tolist())
+            else:
+                chosen = set(np.flatnonzero(above[row]).tolist())
+            indices = sorted(int(index) for index in chosen)
+            if self._conflicts:
+                indices = self._resolve(indices, margins[row])
+            selections.append(
+                sorted(indices, key=lambda index: self._order.get(index, len(self._order)))
+            )
+        return selections
 
     # -- rendering ---------------------------------------------------------
 

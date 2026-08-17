@@ -273,6 +273,7 @@ def calibrate_decoder(
     *,
     prior_only: bool = False,
     rounds: int | None = None,
+    refine_top: int | None = None,
 ) -> dict[str, Any]:
     """Fit per-prototype thresholds on out-of-fold probabilities."""
     entries = load_corpus(paths.corpus)
@@ -302,6 +303,7 @@ def calibrate_decoder(
         bank,
         settings=settings,
         rounds=rounds if rounds is not None else config.decode.calibration_rounds,
+        refine_top=refine_top if refine_top is not None else config.decode.refine_top,
     )
 
     decoder = ReportDecoder(bank, result.thresholds, settings=settings)
@@ -370,6 +372,12 @@ def evaluate(
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
+    # Generated reports only - never the references, which are patient text.
+    (paths.artifacts / "oof_reports.json").write_text(
+        json.dumps({"predictions": predictions}, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
     sample = predictions[case_ids[0]]
     _log(
         f"[evaluate] final(surrogate)={surrogate.final:.4f} "
@@ -415,6 +423,65 @@ def package(
         "checkpoints": len(checkpoints),
         "size_mb": round(size / 1e6, 2),
     }
+
+
+# ---------------------------------------------------------------------------
+# Stage 8: ablation
+# ---------------------------------------------------------------------------
+
+
+def ablation(paths: Paths, config: ExperimentConfig) -> dict[str, Any]:
+    """Score the image-free prior against the trained model on identical machinery.
+
+    This is the control that decides whether the encoder earned its place. If the
+    trained decoder does not beat the prior out-of-fold, the imaging path is
+    measuring noise and the safe submission is the prior-only bundle.
+    """
+    entries = load_corpus(paths.corpus)
+    bank = PrototypeBank.load(paths.prototypes)
+    decoder = ReportDecoder.load(paths.decoder, bank)
+    index = {entry.case_id: entry for entry in entries}
+
+    variants: dict[str, dict[str, float]] = {}
+
+    case_ids = [entry.case_id for entry in entries]
+    references = {case_id: index[case_id].reference for case_id in case_ids}
+    prior = prior_probabilities(bank, len(entries))
+    variants["prior only"] = score_reports(
+        {case_id: decoder.decode(row) for case_id, row in zip(case_ids, prior, strict=True)},
+        references,
+    ).to_dict()
+
+    if paths.oof.is_file():
+        oof_ids, probabilities, _ = load_oof(paths)
+        variants["encoder + calibration"] = score_reports(
+            {
+                case_id: decoder.decode(row)
+                for case_id, row in zip(oof_ids, probabilities, strict=True)
+            },
+            {case_id: index[case_id].reference for case_id in oof_ids},
+        ).to_dict()
+
+    (paths.artifacts / "ablation.json").write_text(
+        json.dumps(variants, indent=2) + "\n", encoding="utf-8"
+    )
+    for name, values in variants.items():
+        _log(f"[ablation] {name:24s} final={values['final']:.4f} clinical={values['clinical']:.4f}")
+    return {"stage": "ablation", "variants": variants}
+
+
+# ---------------------------------------------------------------------------
+# Stage 9: figures
+# ---------------------------------------------------------------------------
+
+
+def figures(paths: Paths, config: ExperimentConfig) -> dict[str, Any]:
+    """Render every diagnostic figure the current artifacts support."""
+    from cbct_reasoner import plots
+
+    written = plots.render_all(paths)
+    _log(f"[figures] wrote {len(written)} figures to {paths.artifacts / 'plots'}")
+    return {"stage": "figures", "plots": [str(path) for path in written]}
 
 
 def _counts(values) -> dict[str, int]:

@@ -168,11 +168,19 @@ class PreprocessConfig:
 class PrototypeConfig:
     """Sentence-prototype bank construction."""
 
-    max_prototypes: int = 192
-    min_support: int = 6
+    max_prototypes: int = 512
+    min_support: int = 3
     embedder: str = "tfidf"
     linkage_threshold: float = 0.62
     max_sentence_words: int = 60
+    #: Token-overlap similarity required to map a phrase onto a prototype. This
+    #: sets the ceiling on RadFact recall: a reference phrase that matches no
+    #: prototype is one the decoder can never emit.
+    assign_threshold: float = 0.45
+    #: Keep tooth numbers distinct when clustering. Masking them groups all
+    #: "absence of teeth ..." sentences into one prototype that no single
+    #: representative can serve.
+    tooth_aware: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,6 +229,9 @@ class DecodeConfig:
     clinical_weight: float = 0.8
     captioning_weight: float = 0.2
     calibration_rounds: int = 6
+    #: Prototypes refined individually, in prevalence order. The rest keep the
+    #: best shared threshold.
+    refine_top: int = 250
     min_sentences: int = 6
     max_sentences: int = 26
     mbr_candidates: int = 24

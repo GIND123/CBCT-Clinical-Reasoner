@@ -206,7 +206,12 @@ def _dispatch(args: argparse.Namespace) -> int:
     if command == "calibrate":
         _emit(
             pipeline.calibrate_decoder(
-                paths, config, prior_only=args.prior_only, rounds=args.rounds, oof=args.oof
+                paths,
+                config,
+                prior_only=args.prior_only,
+                rounds=args.rounds,
+                oof=args.oof,
+                init_decoder=args.init_decoder,
             )
         )
         return 0

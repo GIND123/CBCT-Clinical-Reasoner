@@ -293,6 +293,7 @@ def calibrate(
     global_grid: Sequence[float] | None = None,
     local_grid: Sequence[float] | None = None,
     refine_top: int | None = None,
+    initial: np.ndarray | None = None,
     verbose: bool = True,
 ) -> CalibrationResult:
     """Fit per-prototype thresholds by coordinate ascent on the ranking objective."""
@@ -314,7 +315,10 @@ def calibrate(
         decoder.thresholds = np.asarray(thresholds, dtype=np.float32)
         return scorer.score_selection(decoder.select_many(probabilities))
 
-    # Stage 1: one shared threshold, to land in the right region cheaply.
+    # Stage 1: one shared threshold, to land in the right region cheaply. A warm
+    # start is accepted because coordinate ascent is greedy: seeding it with a
+    # vector fitted elsewhere can escape a local optimum that the flat start
+    # cannot, and it is kept only if it actually scores better.
     best_global, best_score, baseline = 0.5, -1.0, None
     for value in global_grid:
         breakdown = evaluate(np.full(len(bank), value, dtype=np.float32))
@@ -324,6 +328,22 @@ def calibrate(
             best_global, best_score = float(value), breakdown.final
     thresholds = np.full(len(bank), best_global, dtype=np.float32)
     current = evaluate(thresholds)
+
+    if initial is not None:
+        seeded = np.asarray(initial, dtype=np.float32).reshape(-1)
+        if seeded.shape != thresholds.shape:
+            raise ValueError(
+                f"initial thresholds must have shape {thresholds.shape}, got {seeded.shape}"
+            )
+        seeded_score = evaluate(seeded)
+        if verbose:
+            print(
+                f"[calibrate] warm start scores {seeded_score.final:.4f} "
+                f"vs flat start {current.final:.4f}",
+                flush=True,
+            )
+        if seeded_score.final > current.final:
+            thresholds, current = seeded.copy(), seeded_score
     trace = [current.final]
     if verbose:
         print(

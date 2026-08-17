@@ -34,7 +34,9 @@ absence of evidence rather than evidence of sameness.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
+from functools import lru_cache
 
 from cbct_reasoner.ontology import extract_mentions
 
@@ -67,6 +69,94 @@ def redundant_groups(texts: Sequence[str]) -> list[list[int]]:
         groups.setdefault(key, []).append(position)
     duplicates = [group for group in groups.values() if len(group) > 1]
     return sorted(duplicates, key=lambda g: (-len(g), g[0]))
+
+
+#: Words that describe the same property and cannot both be true of one
+#: structure. Selection against the Final Score happily takes both, because each
+#: earns credit on the subset of cases whose reference agrees with it - the
+#: metric scores statements one at a time and never reads the report as a whole.
+EXCLUSIVE_ATTRIBUTES: tuple[frozenset[str], ...] = (
+    # Course of the mandibular canal relative to the cortical plates.
+    frozenset({"lingual", "buccal", "vestibular", "palatal"}),
+    # How much of a structure the volume caught.
+    frozenset({"completely", "partially", "minimally"}),
+    frozenset({"regular", "irregular"}),
+)
+
+#: Concepts that assert a tooth is not there.
+_ABSENCE_CONCEPTS = frozenset({"missing_tooth", "edentulous"})
+
+
+def _words(text: str) -> frozenset[str]:
+    return frozenset(re.findall(r"[a-z]+", text.lower()))
+
+
+@lru_cache(maxsize=200_000)
+def conflicts(first: str, second: str) -> str | None:
+    """Why these two statements cannot both be true, or None if they can.
+
+    A report that contradicts itself is guaranteed to be wrong about something,
+    so this costs RadFact precision as well as credibility. It costs credibility
+    far more: a reader does not need to know anything about the case to see that
+    "maxilla: not included" and "the maxilla is partially included" cannot both
+    hold, and that teeth listed as absent cannot also carry fillings.
+    """
+    first_mentions = extract_mentions(first)
+    second_mentions = extract_mentions(second)
+    first_polarity = {m.concept: m.polarity for m in first_mentions}
+    second_polarity = {m.concept: m.polarity for m in second_mentions}
+
+    for concept, polarity in first_polarity.items():
+        other = second_polarity.get(concept)
+        if other is None:
+            continue
+        if {polarity, other} == {"present", "absent"}:
+            return f"{concept}: {polarity} vs {other}"
+
+    shared = set(first_polarity) & set(second_polarity)
+    if shared:
+        first_words, second_words = _words(first), _words(second)
+        for group in EXCLUSIVE_ATTRIBUTES:
+            left, right = first_words & group, second_words & group
+            if left and right and left != right:
+                return f"{sorted(shared)[0]}: {sorted(left)[0]} vs {sorted(right)[0]}"
+
+    # A tooth cannot be missing in one sentence and restored in the next.
+    for absent, present in ((first_mentions, second_mentions), (second_mentions, first_mentions)):
+        gone = {
+            tooth
+            for m in absent
+            if m.concept in _ABSENCE_CONCEPTS and m.polarity == "absent"
+            for tooth in m.teeth
+        }
+        if not gone:
+            continue
+        claimed = {
+            tooth
+            for m in present
+            if m.polarity == "present" and m.concept not in _ABSENCE_CONCEPTS
+            for tooth in m.teeth
+        }
+        overlap = gone & claimed
+        if overlap:
+            return f"teeth {sorted(overlap)} are both absent and described"
+    return None
+
+
+def consistent_subset(texts: Sequence[str]) -> list[int]:
+    """Positions of statements that neither contradict nor repeat an earlier one."""
+    kept: list[int] = []
+    keys: set[AssertionKey] = set()
+    for position, text in enumerate(texts):
+        key = assertion_key(text)
+        if key is not None and key in keys:
+            continue
+        if any(conflicts(text, texts[earlier]) for earlier in kept):
+            continue
+        kept.append(position)
+        if key is not None:
+            keys.add(key)
+    return kept
 
 
 def deduplicate(

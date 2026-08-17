@@ -78,9 +78,16 @@ def main() -> int:
     core = set(json.loads(Path(args.core).read_text(encoding="utf-8"))["indices"])
     print(f"starting core: {len(core)} statements")
 
-    # Gate candidates: frequent enough to matter, and actually predictable.
+    # Every statement already in the core is a gate candidate, whatever its
+    # prevalence: the point of gating is to stop asserting a core statement on
+    # the cases where it is false, and the core was chosen by the Final Score,
+    # not by how often the statement is true. Additional candidates are drawn by
+    # prevalence, since a statement too rare to gate cannot be fitted anyway.
     ranked = sorted(bank, key=lambda p: -p.prevalence)
-    candidates = [p.index for p in ranked if 0.03 <= p.prevalence <= 0.90][: args.gate_candidates]
+    extra = [p.index for p in ranked if 0.03 <= p.prevalence <= 0.90 and p.index not in core][
+        : args.gate_candidates
+    ]
+    candidates = sorted(core) + extra
     gate_probabilities = out_of_fold_gate_probabilities(features, labels, candidates, folds)
     column_of = {index: position for position, index in enumerate(candidates)}
     print(f"fitted out-of-fold gates for {len(candidates)} candidate statements")

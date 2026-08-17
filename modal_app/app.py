@@ -197,6 +197,7 @@ def train_fold(fold_index: int, config_name: str | None = None) -> dict:
         prior=bank.prevalence,
         checkpoint_dir=paths.checkpoints,
         device=resolve_device(),
+        expected_shape=tuple(config.preprocess.shape_zyx),
     )
     # Each fold writes its own slice; `collect_oof` assembles the full matrix so
     # concurrent folds never race on one file.

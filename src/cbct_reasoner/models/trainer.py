@@ -91,6 +91,7 @@ def train_fold(
     checkpoint_dir: str | Path,
     device: torch.device | None = None,
     progress: bool = True,
+    expected_shape: tuple[int, int, int] | None = None,
 ) -> tuple[FoldResult, np.ndarray]:
     """Train one fold and return its result plus validation probabilities."""
     device = device or resolve_device()
@@ -102,9 +103,16 @@ def train_fold(
     validation_labels = np.stack([labels_by_case[case_id] for case_id in validation_ids])
 
     train_set = CBCTDataset(
-        train_ids, cache_dir, train_labels, augment=AugmentConfig(enabled=True), seed=config.seed
+        train_ids,
+        cache_dir,
+        train_labels,
+        augment=AugmentConfig(enabled=True),
+        seed=config.seed,
+        expected_shape=expected_shape,
     )
-    validation_set = CBCTDataset(validation_ids, cache_dir, validation_labels)
+    validation_set = CBCTDataset(
+        validation_ids, cache_dir, validation_labels, expected_shape=expected_shape
+    )
 
     model = build_network(
         backbone=config.backbone,

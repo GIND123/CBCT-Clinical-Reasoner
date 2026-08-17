@@ -71,7 +71,7 @@ def prepare(
     cached = 0
     started = time.time()
     for position, record in enumerate(records, start=1):
-        if not force and is_cached(paths.cache, record.case_id):
+        if not force and is_cached(paths.cache, record.case_id, config.preprocess):
             cached += 1
             continue
         try:
@@ -212,6 +212,7 @@ def train(
             prior=bank.prevalence,
             checkpoint_dir=paths.checkpoints,
             device=torch_device,
+            expected_shape=tuple(config.preprocess.shape_zyx),
         )
         results.append(result)
         for row, case_id in enumerate(fold.validation):

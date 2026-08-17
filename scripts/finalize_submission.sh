@@ -35,6 +35,17 @@ tar -xzf "$WORKDIR/model.tar.gz" -C submission || exit 1
 test -f submission/model/prototypes.json || { echo "bundle missing prototypes.json" >&2; exit 1; }
 echo "bundle contents:"; ls -la submission/model
 
+echo "== 1b/6 pulling metrics and out-of-fold predictions =="
+# oof.npz lets you re-decode and score locally later - in particular
+# `cbct-reasoner evaluate --radfact-lite` for the real clinical metric - without
+# re-running inference on Modal.
+mkdir -p artifacts work
+for f in calibration.json evaluation.json train_history.json ablation.json oof_reports.json; do
+  python -m modal volume get --force cbct-toothfairy4 "/artifacts/$f" "artifacts/$f" 2>/dev/null     || echo "  (no $f)"
+done
+python -m modal volume get --force cbct-toothfairy4 /work/oof.npz work/oof.npz 2>/dev/null   || echo "  (no oof.npz)"
+python -m modal volume get --force cbct-toothfairy4 /artifacts/plots artifacts/plots 2>/dev/null   || echo "  (no plots)"
+
 echo "== 2/6 collecting results =="
 python scripts/collect_results.py || echo "warning: results collection incomplete"
 

@@ -284,6 +284,7 @@ def calibrate_decoder(
     rounds: int | None = None,
     refine_top: int | None = None,
     oof: Path | None = None,
+    init_decoder: Path | None = None,
 ) -> dict[str, Any]:
     """Fit per-prototype thresholds on out-of-fold probabilities."""
     entries = load_corpus(paths.corpus)
@@ -314,6 +315,14 @@ def calibrate_decoder(
         settings=settings,
         rounds=rounds if rounds is not None else config.decode.calibration_rounds,
         refine_top=refine_top if refine_top is not None else config.decode.refine_top,
+        initial=(
+            np.asarray(
+                json.loads(init_decoder.read_text(encoding="utf-8"))["thresholds"],
+                dtype=np.float32,
+            )
+            if init_decoder is not None
+            else None
+        ),
     )
 
     decoder = ReportDecoder(bank, result.thresholds, settings=settings)

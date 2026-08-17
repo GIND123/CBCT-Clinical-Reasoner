@@ -88,7 +88,8 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("plots", help="render every diagnostic figure")
 
     package = commands.add_parser("package", help="assemble the submission bundle")
-    package.add_argument("--no-checkpoints", action="store_true", help="prior-only bundle")
+    package.add_argument("--no-checkpoints", action="store_true", help="omit fold checkpoints")
+    package.add_argument("--shallow", type=Path, help="ship this linear model in the bundle")
 
     run_all = commands.add_parser(
         "run-all", help="prepare, prototypes, splits, train, calibrate, package"
@@ -240,7 +241,14 @@ def _dispatch(args: argparse.Namespace) -> int:
         _emit(pipeline.figures(paths, config))
         return 0
     if command == "package":
-        _emit(pipeline.package(paths, config, include_checkpoints=not args.no_checkpoints))
+        _emit(
+            pipeline.package(
+                paths,
+                config,
+                include_checkpoints=not args.no_checkpoints,
+                shallow=args.shallow,
+            )
+        )
         return 0
     if command == "run-all":
         return _run_all(paths, config, args)

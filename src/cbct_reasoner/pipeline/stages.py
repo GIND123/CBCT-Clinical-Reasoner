@@ -404,7 +404,11 @@ def evaluate(
 
 
 def package(
-    paths: Paths, config: ExperimentConfig, *, include_checkpoints: bool = True
+    paths: Paths,
+    config: ExperimentConfig,
+    *,
+    include_checkpoints: bool = True,
+    shallow: Path | None = None,
 ) -> dict[str, Any]:
     """Assemble the directory the submission container copies to /opt/ml/model."""
     bank = PrototypeBank.load(paths.prototypes)
@@ -427,6 +431,7 @@ def package(
     if evaluation_path.is_file():
         extra["evaluation"] = json.loads(evaluation_path.read_text(encoding="utf-8"))
 
+    resolved_shallow = shallow if shallow is not None else paths.artifacts / "shallow.npz"
     InferenceBundle.write(
         paths.bundle,
         bank=bank,
@@ -434,6 +439,7 @@ def package(
         config=config,
         checkpoints=checkpoints,
         extra=extra,
+        shallow=resolved_shallow if resolved_shallow.is_file() else None,
     )
     size = sum(path.stat().st_size for path in paths.bundle.rglob("*") if path.is_file())
     _log(
@@ -443,6 +449,7 @@ def package(
         "stage": "package",
         "bundle": str(paths.bundle),
         "checkpoints": len(checkpoints),
+        "shallow": (paths.bundle / "shallow.npz").is_file(),
         "expected_checkpoints": (
             len(SplitPlan.load(paths.folds)) if paths.folds.is_file() else None
         ),

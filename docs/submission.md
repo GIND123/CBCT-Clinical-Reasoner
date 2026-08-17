@@ -15,6 +15,15 @@ the organizer's template handler dispatch.
 
 ## Build
 
+After a Modal run, one command does everything — pull the bundle, collect
+results, build, no-network smoke test, save the tarball, push to the Hub:
+
+```bash
+bash scripts/finalize_submission.sh
+```
+
+Or step by step:
+
 ```bash
 # 1. get a bundle into submission/model/
 cbct-reasoner package && cp -r artifacts/bundle/. submission/model/
@@ -31,6 +40,22 @@ bash submission/do_save.sh
 
 `do_test_run.sh` runs with `--network none`, as the platform does, and asserts
 the output contract.
+
+### Verified
+
+The full path has been exercised on a real case with a prior-only bundle: the
+image builds from `submission/Dockerfile` on the organizer's
+`pytorch/pytorch:2.9.1-cuda12.6-cudnn9-runtime` base, runs with `--network none`,
+and writes a valid `{"report": "<683 characters>"}`. The resulting image is ~12 GB
+uncompressed, which is normal for that CUDA base.
+
+### Runtime pinning
+
+`submission/requirements.txt` and the Modal training image pin the **same**
+`torch`, `timm`, `numpy`, `SimpleITK` and `scikit-learn` versions. This is not
+cosmetic: a checkpoint trained against a different torch or timm build can fail
+to load inside the algorithm container, and that failure surfaces only at
+submission time. If you change one, change the other.
 
 ## Before uploading
 

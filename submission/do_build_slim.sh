@@ -55,4 +55,4 @@ docker build \
   .
 
 echo
-docker image inspect "$IMAGE_TAG" --format 'built {{.RepoTags}} — {{div .Size 1048576}} MB'
+docker image inspect "$IMAGE_TAG" --format 'built {{.RepoTags}} ({{.Size}} bytes)'

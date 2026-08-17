@@ -111,10 +111,14 @@ def _c(
 #: "excluded" is deliberately absent: NEGATION_RE already treats it as a negation
 #: cue, so "condyles excluded from the acquisition" arrives here as coverage with
 #: polarity *absent*, which is what it means.
+#
+#: Words that look like coverage but are findings are deliberately absent:
+#: "normally aerated" describes a sinus, "covered by prosthetic crowns"
+#: describes a restoration, and "no appreciable lesions" describes a lesion.
+#: Including them made 68% of anatomy-concept mentions collide with coverage.
 _COVERAGE_VERBS = (
     r"inclu(?:ded|so|si\w*|sion)|represented|acquired|depicted|imaged|visible|"
-    r"assessable|evaluable|explorable|comprised|contained|appreciable|"
-    r"documented|covered|aerated|scanned"
+    r"assessable|evaluable|explorable|comprised|contained|scanned"
 )
 
 #: Where the structure has to be, for the sentence to be about coverage at all.

@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cbct-clinical-reasoner"
+version = "0.1.0"
+description = "Reproducible ToothFairy4 CBCT-to-report baseline and competition scaffold"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "CBCT Clinical Reasoner Contributors" }]
+dependencies = [
+  "numpy>=1.26,<3",
+  "SimpleITK>=2.3,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0,<9",
+  "pytest-cov>=5,<7",
+  "ruff>=0.9,<1",
+]
+
+[project.scripts]
+cbct-reasoner = "cbct_reasoner.cli:main"
+toothfairy4-inference = "cbct_reasoner.grand_challenge:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cbct_reasoner"]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]

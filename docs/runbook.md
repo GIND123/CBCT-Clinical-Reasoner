@@ -94,11 +94,42 @@ cbct-reasoner --config configs/fast.json --data /tmp/tf4 --work /tmp/ws run-all
 
 ## 2B. Run on Modal
 
+**Preprocess locally, upload the cache, train remotely.** This is the recommended
+path and the one used for the real release: the raw release is ~45 GB, while the
+normalized voxel cache is ~5 GB, so preprocessing first cuts the upload by 9x.
+Preprocessing is CPU-only and takes about 30 minutes for 622 volumes; nothing is
+gained by paying to do it on a GPU machine.
+
 ```bash
 modal setup                                    # once
 modal volume create cbct-toothfairy4
-modal volume put cbct-toothfairy4 E:/datasets/toothfairy4 /raw
 
+# Build the cache and label space locally (CPU)
+cbct-reasoner --config configs/toothfairy4.json prepare
+cbct-reasoner --config configs/toothfairy4.json prototypes
+cbct-reasoner --config configs/toothfairy4.json splits
+
+# Upload only what training needs (~5 GB, not 45 GB)
+modal volume put cbct-toothfairy4 work/cache          /work/cache
+modal volume put cbct-toothfairy4 work/labels.npz     /work/labels.npz
+modal volume put cbct-toothfairy4 work/corpus.jsonl   /work/corpus.jsonl
+modal volume put cbct-toothfairy4 work/folds.json     /work/folds.json
+modal volume put cbct-toothfairy4 artifacts/prototypes.json /artifacts/prototypes.json
+
+# GPU work: folds train in parallel
+modal run modal_app/app.py --stage train
+# Everything after training: calibrate, evaluate, ablation, figures, package
+modal run modal_app/app.py --stage post
+```
+
+> On Git Bash, prefix Modal commands with `MSYS_NO_PATHCONV=1`. Without it the
+> remote path `/work/cache` is rewritten to a Windows path and the upload lands
+> somewhere unexpected.
+
+To do everything remotely instead, upload the raw release and use `--stage all`:
+
+```bash
+modal volume put cbct-toothfairy4 E:/datasets/toothfairy4 /raw
 modal run modal_app/app.py --stage inspect     # confirm the upload
 modal run modal_app/app.py --stage all
 ```

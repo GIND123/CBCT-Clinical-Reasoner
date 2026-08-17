@@ -22,7 +22,7 @@ import numpy as np
 
 from cbct_reasoner.config import PreprocessConfig
 
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,10 +36,17 @@ class VolumeMeta:
     intensity_low: float
     intensity_high: float
     foreground_fraction: float
+    #: Grid this cache was written on. Stored so a configuration change - or a
+    #: stale file left by an interrupted run - invalidates the entry instead of
+    #: silently producing a batch of mixed shapes.
+    cached_shape_zyx: tuple[int, int, int] = (0, 0, 0)
+    cached_spacing_mm: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "cache_version": CACHE_VERSION,
+            "cached_shape_zyx": list(self.cached_shape_zyx),
+            "cached_spacing_mm": list(self.cached_spacing_mm),
             "case_id": self.case_id,
             "original_shape_zyx": list(self.original_shape_zyx),
             "original_spacing_zyx": list(self.original_spacing_zyx),
@@ -59,6 +66,10 @@ class VolumeMeta:
             intensity_low=float(payload["intensity_low"]),
             intensity_high=float(payload["intensity_high"]),
             foreground_fraction=float(payload["foreground_fraction"]),
+            cached_shape_zyx=tuple(int(v) for v in payload.get("cached_shape_zyx", (0, 0, 0))),  # type: ignore[arg-type]
+            cached_spacing_mm=tuple(
+                float(v) for v in payload.get("cached_spacing_mm", (0.0, 0.0, 0.0))
+            ),  # type: ignore[arg-type]
         )
 
     def to_vector(self) -> np.ndarray:
@@ -135,6 +146,8 @@ def preprocess_volume(
         intensity_low=low,
         intensity_high=high,
         foreground_fraction=foreground_fraction,
+        cached_shape_zyx=tuple(int(v) for v in config.shape_zyx),
+        cached_spacing_mm=tuple(float(v) for v in config.spacing_mm),
     )
     return array.astype(np.dtype(config.dtype)), meta
 
@@ -243,6 +256,29 @@ def read_cache(cache_dir: str | Path, case_id: str) -> tuple[np.ndarray, VolumeM
     return np.load(array_path, mmap_mode="r"), VolumeMeta.from_dict(payload)
 
 
-def is_cached(cache_dir: str | Path, case_id: str) -> bool:
+def is_cached(cache_dir: str | Path, case_id: str, config: PreprocessConfig | None = None) -> bool:
+    """True when a usable cache entry exists for this case.
+
+    With ``config`` the stored grid must match the requested one. Without that
+    check, an interrupted run that wrote a different shape leaves entries which
+    load fine individually and only fail later, inside the collate function, as
+    a confusing size-mismatch error.
+    """
     array_path, meta_path = cache_paths(cache_dir, case_id)
-    return array_path.is_file() and meta_path.is_file()
+    if not (array_path.is_file() and meta_path.is_file()):
+        return False
+    if config is None:
+        return True
+    try:
+        payload = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if int(payload.get("cache_version", 0)) != CACHE_VERSION:
+        return False
+    shape = tuple(int(v) for v in payload.get("cached_shape_zyx", ()))
+    spacing = tuple(float(v) for v in payload.get("cached_spacing_mm", ()))
+    return (
+        shape == tuple(config.shape_zyx)
+        and all(abs(a - b) < 1e-6 for a, b in zip(spacing, config.spacing_mm, strict=False))
+        and len(spacing) == 3
+    )

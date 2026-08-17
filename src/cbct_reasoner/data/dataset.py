@@ -43,6 +43,7 @@ class CBCTDataset(Dataset):
         *,
         augment: AugmentConfig | None = None,
         seed: int = 2026,
+        expected_shape: tuple[int, int, int] | None = None,
     ) -> None:
         if labels is not None and len(labels) != len(case_ids):
             raise ValueError("labels must have one row per case id")
@@ -51,6 +52,7 @@ class CBCTDataset(Dataset):
         self.labels = None if labels is None else np.asarray(labels, dtype=np.float32)
         self.augment = augment or AugmentConfig(enabled=False)
         self.seed = seed
+        self.expected_shape = expected_shape
 
     def __len__(self) -> int:
         return len(self.case_ids)
@@ -59,6 +61,11 @@ class CBCTDataset(Dataset):
         case_id = self.case_ids[index]
         array, meta = read_cache(self.cache_dir, case_id)
         volume = np.asarray(array, dtype=np.float32)
+        if self.expected_shape is not None and volume.shape != self.expected_shape:
+            raise ValueError(
+                f"case {case_id!r} was cached at {volume.shape}, expected "
+                f"{self.expected_shape}. Re-run `cbct-reasoner prepare --force`."
+            )
 
         if self.augment.enabled:
             volume = self._augment(volume, index)

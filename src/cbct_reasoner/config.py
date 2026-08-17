@@ -203,6 +203,11 @@ class EncoderConfig:
     ema_decay: float = 0.999
     amp: bool = True
     num_workers: int = 4
+    #: Train and select on prototypes with at least this many positives in the
+    #: training fold. 0 keeps every column. Rarer statements keep their
+    #: prior-initialized bias untouched, which is the best available estimate
+    #: for something seen two or three times.
+    min_head_support: int = 0
     seed: int = 2026
 
 

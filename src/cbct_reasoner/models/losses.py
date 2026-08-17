@@ -34,7 +34,12 @@ class AsymmetricLoss(nn.Module):
         self.label_smoothing = label_smoothing
         self.eps = eps
 
-    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        logits: torch.Tensor,
+        targets: torch.Tensor,
+        column_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         if self.label_smoothing > 0:
             targets = targets * (1 - self.label_smoothing) + 0.5 * self.label_smoothing
 
@@ -55,7 +60,13 @@ class AsymmetricLoss(nn.Module):
                 - (1.0 - self.clip) * (1 - targets) * (1 - negative_prob),
                 self.gamma_positive * targets + self.gamma_negative * (1 - targets),
             )
-        return -((loss_positive + loss_negative) * weight).sum(dim=1).mean()
+        per_column = -(loss_positive + loss_negative) * weight
+        if column_mask is not None:
+            # Statements with too few positives to learn are left to their
+            # prior-initialized bias: no gradient, so no noise added to the
+            # backbone from columns that cannot be predicted anyway.
+            per_column = per_column * column_mask
+        return per_column.sum(dim=1).mean()
 
 
 class ModelEma:
@@ -83,12 +94,22 @@ class ModelEma:
                 ema_value.copy_(value)
 
 
-def average_precision(scores: torch.Tensor, targets: torch.Tensor) -> float:
-    """Per-column average precision, averaged over columns with a positive."""
+def average_precision(
+    scores: torch.Tensor, targets: torch.Tensor, column_mask: torch.Tensor | None = None
+) -> float:
+    """Per-column average precision, averaged over columns with a positive.
+
+    ``column_mask`` restricts the average to learnable columns. Over a
+    thousand-statement label space the unrestricted mean is dominated by
+    prototypes seen in two or three cases, where average precision is noise,
+    and it barely moves however good the model is.
+    """
     if scores.shape != targets.shape:
         raise ValueError("scores and targets must have the same shape")
     values: list[float] = []
     for column in range(scores.shape[1]):
+        if column_mask is not None and not bool(column_mask[column]):
+            continue
         target = targets[:, column]
         positives = int(target.sum().item())
         if positives == 0 or positives == target.numel():

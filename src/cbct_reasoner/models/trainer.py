@@ -147,6 +147,20 @@ def train_fold(
     checkpoint_path = Path(checkpoint_dir) / f"fold{fold_index}.pt"
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
+    support = train_labels.sum(axis=0)
+    column_mask = (
+        torch.from_numpy((support >= config.min_head_support).astype(np.float32))
+        if config.min_head_support > 0
+        else None
+    )
+    if column_mask is not None:
+        print(
+            f"[fold {fold_index}] training on {int(column_mask.sum())}/{num_prototypes} "
+            f"statements with >= {config.min_head_support} positives",
+            flush=True,
+        )
+        column_mask = column_mask.to(device)
+
     validation_targets = torch.from_numpy(validation_labels)
     best_score = -1.0
     best_epoch = -1
@@ -163,7 +177,7 @@ def train_fold(
             meta = batch["meta"].to(device, non_blocking=True)
             targets = batch["labels"].to(device, non_blocking=True)
             with torch.autocast(device_type=device.type, enabled=scaler.is_enabled()):
-                loss = criterion(model(volume, meta), targets) / config.accumulate
+                loss = criterion(model(volume, meta), targets, column_mask) / config.accumulate
             scaler.scale(loss).backward()
             running += float(loss.item()) * config.accumulate
 
@@ -179,7 +193,11 @@ def train_fold(
         probabilities = predict_probabilities(
             ema.module, validation_set, device=device, batch_size=config.batch_size
         )
-        score = average_precision(torch.from_numpy(probabilities), validation_targets)
+        score = average_precision(
+            torch.from_numpy(probabilities),
+            validation_targets,
+            None if column_mask is None else column_mask.cpu(),
+        )
         entry = {
             "epoch": float(epoch),
             "train_loss": running / max(1, len(loader)),

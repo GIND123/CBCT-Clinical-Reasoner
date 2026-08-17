@@ -53,6 +53,12 @@ def main() -> int:
         selection = sorted(chosen, key=lambda i: order.get(i, len(order)))
         return scorer.score_selection([selection] * len(entries))
 
+    # Every prefix is recorded, not just the end point. The Final Score keeps
+    # rising as statements are added, but so does the number of statements that
+    # are false for any given patient - and the double-blind review that decides
+    # the ranking is read by a surgeon, not a metric. Keeping the trajectory lets
+    # the length be chosen from the curve instead of from whatever cap was set.
+    trajectory: list[dict] = []
     chosen: set[int] = set()
     best = -1.0
     for _step in range(args.max_sentences):
@@ -70,6 +76,14 @@ def main() -> int:
         chosen.add(index)
         best = value
         breakdown = evaluate(chosen)
+        trajectory.append(
+            {
+                "statements": len(chosen),
+                "indices": sorted(chosen, key=lambda i: order.get(i, len(order))),
+                "false_statements_per_case": len(chosen) * (1.0 - breakdown.logical_precision),
+                **breakdown.to_dict(),
+            }
+        )
         print(
             f"  +{len(chosen):2d} FINAL {breakdown.final:.4f} "
             f"clinical {breakdown.clinical:.4f} "
@@ -109,6 +123,9 @@ def main() -> int:
         f"METEOR {breakdown.meteor:.4f}  statements {len(chosen)}"
     )
 
+    Path(f"{args.out}_trajectory.json").write_text(
+        json.dumps(trajectory, indent=2) + "\n", encoding="utf-8"
+    )
     Path(f"{args.out}.txt").write_text(text + "\n", encoding="utf-8")
     Path(f"{args.out}.json").write_text(
         json.dumps(

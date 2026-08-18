@@ -490,6 +490,67 @@ def search_constant(task: dict) -> dict:
     return result
 
 
+@app.function(image=image, volumes=VOLUMES, timeout=3600, cpu=2.0)
+def search_subset(task: dict) -> dict:
+    """Fit a report on one arbitrary set of cases and score it on another.
+
+    ``search_constant`` groups by acquisition centre, which is the right split
+    for estimating transfer but the wrong one for conditioning: the centre is not
+    known at inference time. This takes explicit case lists instead, so a report
+    can be fitted per *geometry cluster* - a grouping the container can reproduce
+    from the image header alone.
+    """
+    from cbct_reasoner.data.corpus import load_corpus
+    from cbct_reasoner.decode.constant import (
+        CorpusScorer,
+        SearchConfig,
+        render_tokens,
+        search,
+    )
+    from cbct_reasoner.prototypes import PrototypeBank
+
+    paths, _ = _context(task.get("config_name"))
+    entries = load_corpus(paths.corpus)
+    bank = PrototypeBank.load(paths.prototypes)
+    reference_of = {e.case_id: e.reference for e in entries}
+
+    config = SearchConfig(
+        bleu_weight=task.get("bleu_weight", 0.85),
+        aggregate=task.get("aggregate", "mean"),
+        min_prevalence=task.get("min_prevalence", 0.01),
+        max_sentences=task.get("max_sentences", 40),
+        bleu_target=task.get("bleu_target", 0.1418),
+        meteor_target=task.get("meteor_target", 0.3542),
+    )
+
+    train = [reference_of[c] for c in task["train_ids"] if c in reference_of]
+    if len(train) < 8:
+        return {**task, "skipped": "fewer than 8 training cases", "indices": []}
+
+    chosen, text = search(bank, [train], config)
+    _, tokens = render_tokens(bank, chosen)
+
+    result = {
+        "cluster": task.get("cluster"),
+        "held_out": task.get("held_out"),
+        "k": task.get("k"),
+        "config": config.key(),
+        "train_size": len(train),
+        "sentences": len(chosen),
+        "tokens": len(tokens),
+        "indices": sorted(chosen),
+        "report": text,
+    }
+    evaluation = [reference_of[c] for c in task.get("eval_ids", []) if c in reference_of]
+    if evaluation:
+        bleu, meteor = CorpusScorer(evaluation).score(tokens)
+        result["eval_size"] = len(evaluation)
+        result["eval_bleu_4"] = bleu
+        result["eval_meteor"] = meteor
+    print(result["cluster"], result.get("eval_bleu_4"), result.get("eval_meteor"), flush=True)
+    return result
+
+
 @app.function(image=image, volumes=VOLUMES, timeout=3600)
 def store_report(payload: dict) -> dict:
     """Persist a fitted constant report to the volume."""

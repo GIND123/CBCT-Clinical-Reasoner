@@ -95,6 +95,62 @@ class CorpusScorer:
         )
         return bleu, float(meteor)
 
+    def score_per_case(self, candidates: Sequence[Sequence[str]]) -> tuple[float, float]:
+        """Corpus BLEU-4 and mean METEOR when each case gets its own report.
+
+        Same accumulation as :meth:`score` - n-gram counts summed over cases
+        before dividing, one brevity penalty on the corpus totals - so a mixture
+        of reports and a single constant report are measured on one ruler and
+        their numbers are directly comparable.
+        """
+        if len(candidates) != self.count:
+            raise ValueError(f"{len(candidates)} candidates for {self.count} references")
+
+        numerators = [0, 0, 0, 0]
+        denominators = [0, 0, 0, 0]
+        hypothesis_total = 0
+        for case, report_tokens in enumerate(candidates):
+            length = len(report_tokens)
+            hypothesis_total += length
+            for order in range(4):
+                counts = Counter(
+                    tuple(report_tokens[i : i + order + 1]) for i in range(length - order)
+                )
+                reference = self.ngrams[case][order]
+                numerators[order] += sum(
+                    min(count, reference[gram]) for gram, count in counts.items()
+                )
+                denominators[order] += max(1, length - order)
+
+        if numerators[0] == 0:
+            bleu = 0.0
+        else:
+            precisions = [
+                (n + BLEU_EPSILON) / d if n == 0 else n / d
+                for n, d in zip(numerators, denominators, strict=True)
+            ]
+            penalty = (
+                1.0
+                if hypothesis_total > self.reference_total
+                else math.exp(1.0 - self.reference_total / max(hypothesis_total, 1))
+            )
+            bleu = float(
+                penalty
+                * math.exp(
+                    math.fsum(
+                        w * math.log(p) for w, p in zip(BLEU_WEIGHTS, precisions, strict=True)
+                    )
+                )
+            )
+        meteor = (
+            sum(
+                meteor_score_fast(candidates[c], self.tokens[c], self.index[c])
+                for c in range(self.count)
+            )
+            / self.count
+        )
+        return bleu, float(meteor)
+
 
 @dataclass(frozen=True, slots=True)
 class SearchConfig:

@@ -446,11 +446,16 @@ def search_constant(task: dict) -> dict:
     entries = load_corpus(paths.corpus)
     bank = PrototypeBank.load(paths.prototypes)
 
+    # The normalisers are what the objective is measured against, so they have to
+    # be the bar actually being cleared. Left at their old values the search was
+    # optimising against a leaderboard that no longer exists.
     config = SearchConfig(
         bleu_weight=task["bleu_weight"],
         aggregate=task["aggregate"],
         min_prevalence=task["min_prevalence"],
         max_sentences=task.get("max_sentences", 40),
+        bleu_target=task.get("bleu_target", 0.1418),
+        meteor_target=task.get("meteor_target", 0.3542),
     )
     held = task.get("held_out")
     centres = sorted({e.center for e in entries})
@@ -462,6 +467,7 @@ def search_constant(task: dict) -> dict:
 
     result = {
         **{k: task[k] for k in ("bleu_weight", "aggregate", "min_prevalence")},
+        "max_sentences": config.max_sentences,
         "held_out": held,
         "sentences": len(chosen),
         "tokens": len(tokens),

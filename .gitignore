@@ -9,12 +9,39 @@ htmlcov/
 venv/
 dist/
 build/
+
+# Secrets
+.env
+!.env.example
+
+# Dataset archives: the release is access-controlled patient data.
+*.zip
+*.tar
+*.tar.gz
+
+# Derived clinical data and trained artifacts: never committed.
+work/
 artifacts/
 predictions/
-data/raw/
+data/raw/*
+!data/raw/README.md
+
+# Volumes in any location
 *.nii
 *.nii.gz
 *.mha
 *.mhd
-model/*.npz
-!model/README.md
+*.nrrd
+*.npy
+*.npz
+*.pt
+*.pth
+*.safetensors
+
+# Packaged submission
+submission/model/*
+!submission/model/.gitkeep
+!submission/model/README.md
+# Stress-test scratch: input_a, input_b, input_corrupt, out_*, log_*, ...
+submission/test/
+submission/*.tar.gz

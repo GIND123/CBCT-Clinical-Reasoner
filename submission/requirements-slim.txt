@@ -1,0 +1,4 @@
+# Inference for a bundle without neural checkpoints: numpy and SimpleITK only.
+# No torch, no CUDA - the prior and linear decoders need neither.
+numpy==2.1.3
+SimpleITK==2.4.1

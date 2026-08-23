@@ -7,16 +7,46 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
+
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[dev]"
+      # The train extra brings torch/timm/scikit-learn, which the end-to-end
+      # pipeline test needs. CPU wheels only - CI never sees a GPU.
+      - run: python -m pip install -e ".[train,dev]"
+
       - run: ruff check .
+      - run: ruff format --check .
+
+      # No dataset in CI, and none may ever be added: the release is
+      # access-controlled patient data. Coverage comes from synthetic cases.
       - run: pytest --cov=cbct_reasoner --cov-report=term-missing
+
+      - name: Rehearse the pipeline on synthetic data
+        run: |
+          cbct-reasoner synthetic --output /tmp/tf4 --cases 24
+          cbct-reasoner --config configs/fast.json --data /tmp/tf4 --work /tmp/ws run-all
+
+      - name: Assert the container output contract
+        run: |
+          python submission/make_test_input.py --output /tmp/gcinput
+          CBCT_INPUT_DIR=/tmp/gcinput/images/cbct \
+          REPORT_OUTPUT_PATH=/tmp/gcoutput/diagnostic-imaging-report.json \
+          MODEL_PATH=/tmp/ws/artifacts/bundle \
+          toothfairy4-inference
+          cbct-reasoner validate-output /tmp/gcoutput/diagnostic-imaging-report.json

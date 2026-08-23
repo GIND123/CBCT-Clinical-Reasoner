@@ -1,0 +1,45 @@
+# Slim Grand Challenge algorithm image for a bundle with no neural checkpoints.
+#
+# The prior and linear decoders need numpy and SimpleITK and nothing else - no
+# torch, no CUDA. Building on the organizer's pytorch base would ship ~12 GB to
+# serve a 1 MB model. This image is roughly thirty times smaller, which matters
+# because the submission is uploaded as a compressed tarball.
+#
+# Use submission/Dockerfile instead when the bundle contains checkpoints/*.pt.
+FROM --platform=linux/amd64 python:3.11-slim-bookworm AS toothfairy4_algorithm_slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    HF_HUB_OFFLINE=1 \
+    TOKENIZERS_PARALLELISM=false
+
+RUN groupadd -r user && useradd -m --no-log-init -r -g user user
+
+WORKDIR /opt/app
+
+COPY --chown=user:user submission/requirements-slim.txt /opt/app/requirements.txt
+RUN python -m pip install --no-cache-dir --no-color --requirement /opt/app/requirements.txt
+
+COPY --chown=user:user pyproject.toml README.md LICENSE /opt/app/
+COPY --chown=user:user src /opt/app/src
+RUN python -m pip install --no-cache-dir --no-deps /opt/app
+
+# The bundle is baked in TWICE, deliberately.
+#
+# Grand Challenge mounts its own model volume at /opt/ml/model, which shadows
+# anything the image put there. The first submission failed exactly this way:
+# prototypes.json was invisible at run time, InferenceBundle.load raised, and the
+# container emitted its hardcoded fallback for all 50 cases. /opt/app/model is a
+# path the platform does not mount over, so it always survives.
+COPY --chown=user:user submission/model /opt/ml/model
+COPY --chown=user:user submission/model /opt/app/model
+
+# report_model.py is the report itself, as source rather than data. Nothing
+# mounts over an import, so the geometry-gated report survives even the failure
+# mode above - the bundle beside it is an optional upgrade, not a requirement.
+COPY --chown=user:user submission/report_model.py /opt/app/report_model.py
+COPY --chown=user:user submission/inference.py /opt/app/inference.py
+
+USER user
+
+ENTRYPOINT ["python", "inference.py"]

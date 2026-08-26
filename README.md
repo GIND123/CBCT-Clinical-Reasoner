@@ -55,8 +55,9 @@ ranking, but it is not a replacement for the official RadFact evaluation.
 
 ## Hugging Face resources
 
-Project artifacts are stored in private repositories because they can contain
-patient-derived report text. The links work for authorized collaborators:
+The primary inference artifacts are publicly downloadable. Access to the
+submission and experiment repositories varies because some artifacts can
+contain patient-derived report text:
 
 - [Primary CBCT Clinical Reasoner artifacts](https://huggingface.co/GOVINDFROM/cbct-clinical-reasoner)
 - [ODIN 2026 submission artifacts](https://huggingface.co/GOVINDFROM/cbct-clinical-reasoner-odin2026)
@@ -65,7 +66,97 @@ patient-derived report text. The links work for authorized collaborators:
 - [Qwen2.5 1.5B Instruct base model](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct)
 
 Set `HF_TOKEN` or a compatible token key in `.env` before using Hub commands.
-Repositories are private by default.
+New repositories created by this project are private by default.
+
+## Published models: use and reproducibility
+
+The primary [Hugging Face model repository](https://huggingface.co/GOVINDFROM/cbct-clinical-reasoner)
+contains two evaluated model families. They share the same 989-statement
+prototype bank and calibrated report decoder but are not interchangeable at
+inference time:
+
+| Artifact | Intended use | Runtime requirements |
+|---|---|---|
+| `bundle/` | Recommended ready-to-run model: a 122-feature linear predictor with a calibrated decoder and deterministic fallback | CPU; base package dependencies |
+| `checkpoints_neural/fold*.pt` | Five-fold 29M-parameter encoder ensemble retained for comparison and further research; it scored below the linear bundle out of fold | PyTorch and `.[train]`; GPU recommended |
+| `bundle/fallback_report.txt` | Image-independent safety output used only if volume processing or model inference fails | No learned-model runtime |
+
+The Qwen configuration is disabled in the published experiment. No Qwen adapter
+or other LLM is required to generate a report. RadFact may use an LLM only when
+evaluation is explicitly run with `--radfact-lite`.
+
+### Run the published CPU bundle
+
+Install the source package, then download the exact Hub snapshot used below.
+Pinning revision `cf0a77e14900e935ce3bb40bc6d5550bb089aeec`
+prevents a later Hub update from silently changing the model:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[hub]"
+
+python - <<'PY'
+from huggingface_hub import snapshot_download
+
+snapshot_download(
+    repo_id="GOVINDFROM/cbct-clinical-reasoner",
+    revision="cf0a77e14900e935ce3bb40bc6d5550bb089aeec",
+    allow_patterns=["bundle/*", "RESULTS.md", "results.json"],
+    local_dir="artifacts/published",
+)
+PY
+
+cbct-reasoner predict \
+  --bundle artifacts/published/bundle \
+  --input /path/to/volume.mha \
+  --output predictions/diagnostic-imaging-report.json
+cbct-reasoner validate-output predictions/diagnostic-imaging-report.json
+```
+
+The input must be one CBCT volume readable by SimpleITK, such as `.mha` or
+`.nii.gz`. The output is the Grand Challenge JSON object
+`{"report": "<non-empty report>"}`. Inference is local and does not upload the
+volume. This remains benchmark research software: every generated report needs
+qualified clinical review.
+
+### Reproduce the reported experiments
+
+The public snapshot is sufficient to reproduce inference, but not training: the
+ToothFairy4 volumes and reports are access-controlled and are not redistributed
+here. With an authorized copy of `toothfairy4_v03`, the linear model's
+out-of-fold path can be rerun as follows:
+
+```bash
+python -m pip install -e ".[train,dev]"
+export TOOTHFAIRY_DATA=/absolute/path/to/toothfairy4_v03
+
+cbct-reasoner --config configs/toothfairy4.json prepare
+cbct-reasoner --config configs/toothfairy4.json prototypes
+cbct-reasoner --config configs/toothfairy4.json splits
+python scripts/train_shallow.py --config configs/toothfairy4.json
+cbct-reasoner --config configs/toothfairy4.json calibrate \
+  --oof work/oof_shallow.npz
+cbct-reasoner --config configs/toothfairy4.json evaluate \
+  --oof work/oof_shallow.npz \
+  --output artifacts/evaluation-shallow.json
+```
+
+For the neural comparison, replace the shallow training command with
+`cbct-reasoner --config configs/toothfairy4.json train`, then run `calibrate`
+and `evaluate` without `--oof`. The published run used 622 evaluated cases,
+five patient-grouped folds, seed 2026, and the preprocessing/training settings
+stored in `bundle/config.json`. The Hub snapshot's `results.json` records the
+source commit and full metric provenance.
+
+Reproduction means matching the data split and reported metrics within normal
+numerical tolerance, not necessarily producing bit-identical neural weights.
+Record the dataset release/checksum, source and Hub revisions, Python package
+versions (`python -m pip freeze`), hardware, CUDA version, and RadFact model and
+provider. BLEU-4 and METEOR are deterministic local implementations; the
+offline RadFact surrogate is a ranking aid, while `--radfact-lite` results also
+depend on the selected LLM backend.
 
 ## Quick start
 
